@@ -12,3 +12,5 @@ MONGODB_URI=
 MONGODB_DB_NAME=dokploy
 HOSTED_ZONE_ID=
 HOSTED_ZONE_NAME=apps.poc.darwinbox.io
+PUBLIC_BASE_URL=https://helper.apps.poc.darwinbox.io
+PREFERRED_URL_SCHEME=https

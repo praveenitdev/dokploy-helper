@@ -17,7 +17,7 @@ from route53_service import Route53Service
 app = Flask(__name__)
 app.config.from_object(app_config)
 app.secret_key = app_config.APP_SECRET_KEY
-app.wsgi_app = ProxyFix(app.wsgi_app)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 Session(app)
 
 _DNS_REPOSITORY = None
@@ -48,7 +48,20 @@ def _build_msal_app(cache: Optional[msal.SerializableTokenCache] = None):
 def _build_auth_code_flow(scopes=None) -> Dict[str, Any]:
     return _build_msal_app().initiate_auth_code_flow(
         scopes or [],
-        redirect_uri=url_for("authorized", _external=True),
+        redirect_uri=_external_url_for("authorized"),
+    )
+
+
+def _external_url_for(endpoint: str, **values: Any) -> str:
+    public_base_url = app_config.PUBLIC_BASE_URL.rstrip("/")
+    if public_base_url:
+        return f"{public_base_url}{url_for(endpoint, _external=False, **values)}"
+
+    return url_for(
+        endpoint,
+        _external=True,
+        _scheme=app_config.PREFERRED_URL_SCHEME,
+        **values,
     )
 
 
@@ -279,7 +292,7 @@ def logout():
         app_config.AUTHORITY
         + "/oauth2/v2.0/logout"
         + "?post_logout_redirect_uri="
-        + url_for("login", _external=True)
+        + _external_url_for("login")
     )
     return redirect(logout_url)
 
