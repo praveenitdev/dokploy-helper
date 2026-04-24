@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard | Dokploy Helper{% endblock %}
+{% block content %}
+<div class="hero-card">
+  <div>
+    <p class="eyebrow">Welcome</p>
+    <h2>Infrastructure control center</h2>
+    <p class="text-muted mb-0">Use the left menu to manage Route53 records and upcoming platform helpers.</p>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-md-4">
+    <a href="{{ url_for('dns_records') }}" class="feature-card">
+      <div class="feature-icon"><i class="bi bi-globe2"></i></div>
+      <div>
+        <h6 class="mb-1">DNS Management</h6>
+        <p class="mb-0 text-muted">Create and maintain application CNAME records quickly.</p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('audit_page') }}" class="feature-card">
+      <div class="feature-icon"><i class="bi bi-clipboard-data"></i></div>
+      <div>
+        <h6 class="mb-1">Audit Logs</h6>
+        <p class="mb-0 text-muted">Track every action with actor, status, and timestamps.</p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('databases') }}" class="feature-card">
+      <div class="feature-icon"><i class="bi bi-database"></i></div>
+      <div>
+        <h6 class="mb-1">Databases</h6>
+        <p class="mb-0 text-muted">Prepare for upcoming platform database operations.</p>
+      </div>
+    </a>
+  </div>
+</div>
+{% endblock %}
