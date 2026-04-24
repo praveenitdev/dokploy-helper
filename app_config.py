@@ -39,6 +39,9 @@ MONGODB_URI = _get_env("MONGODB_URI")
 MONGODB_DB_NAME = _get_env("MONGODB_DB_NAME") or "dokploy"
 HOSTED_ZONE_ID = _get_env("HOSTED_ZONE_ID")
 HOSTED_ZONE_NAME = _get_env("HOSTED_ZONE_NAME") or "apps.poc.darwinbox.io"
+DOKPLOY_BASE_URL = _get_env("DOKPLOY_BASE_URL")
+DOKPLOY_API_KEY = _get_env("DOKPLOY_API_KEY")
+DOKPLOY_API_TIMEOUT_SECONDS = int(_get_env("DOKPLOY_API_TIMEOUT_SECONDS") or "20")
 PUBLIC_BASE_URL = _get_env("PUBLIC_BASE_URL")
 PREFERRED_URL_SCHEME = _get_env("PREFERRED_URL_SCHEME") or (
     "https" if PUBLIC_BASE_URL.lower().startswith("https://") else "http"

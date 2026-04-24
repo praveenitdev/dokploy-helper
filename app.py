@@ -10,6 +10,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import app_config
 from audit_repository import AuditRepository
+from dokploy_service import DokployService
 from dns_repository import DNSRepository
 from route53_service import Route53Service
 
@@ -92,6 +93,14 @@ def _route53_service() -> Route53Service:
         aws_secret_access_key=app_config.AWS_SECRET_ACCESS_KEY,
         aws_session_token=app_config.AWS_SESSION_TOKEN,
         iam_role_arn=app_config.IAM_ROLE_ARN,
+    )
+
+
+def _dokploy_service() -> DokployService:
+    return DokployService(
+        base_url=app_config.DOKPLOY_BASE_URL,
+        api_key=app_config.DOKPLOY_API_KEY,
+        timeout_seconds=app_config.DOKPLOY_API_TIMEOUT_SECONDS,
     )
 
 
@@ -540,6 +549,64 @@ def dns_delete():
             details=str(exc),
         )
         flash(f"Failed to delete CNAME: {exc}", "danger")
+
+    return redirect(url_for("dns_records"))
+
+
+@app.route("/dns/sync-dokploy", methods=["POST"])
+def dns_sync_dokploy():
+    login_redirect = _require_login()
+    if login_redirect:
+        return login_redirect
+
+    hosted_zone = _hosted_zone_name()
+    suffix = f".{hosted_zone}"
+    synced_count = 0
+    protected_skipped = 0
+    outside_zone_skipped = 0
+    target_name = _default_cname_target()
+    actor_email = _actor_email()
+
+    try:
+        domains = _dokploy_service().list_project_service_domains()
+        for domain in domains:
+            record_name = domain.strip().rstrip(".").lower()
+            if not record_name.endswith(suffix) or record_name == hosted_zone:
+                outside_zone_skipped += 1
+                continue
+
+            if _dns_repository().is_record_protected(record_name):
+                protected_skipped += 1
+                continue
+
+            _route53_service().upsert_cname(name=record_name, target=target_name, ttl=300)
+            _dns_repository().upsert_record(
+                record_name=record_name,
+                target=target_name,
+                actor_email=actor_email,
+            )
+            synced_count += 1
+
+        _log_dns_audit(
+            action="SYNC_DOKPLOY",
+            status="SUCCESS",
+            record_name=f"*.{hosted_zone}",
+            target=target_name,
+            details=f"Synced={synced_count}; ProtectedSkipped={protected_skipped}; OutsideZoneSkipped={outside_zone_skipped}",
+        )
+        flash(
+            f"Dokploy sync complete. Synced: {synced_count}, protected skipped: {protected_skipped}, outside zone skipped: {outside_zone_skipped}.",
+            "success",
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        _log_dns_audit(
+            action="SYNC_DOKPLOY",
+            status="FAILED",
+            record_name=f"*.{hosted_zone}",
+            target=target_name,
+            details=str(exc),
+        )
+        flash(f"Failed to sync Dokploy domains: {exc}", "danger")
 
     return redirect(url_for("dns_records"))
 

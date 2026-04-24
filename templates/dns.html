@@ -8,6 +8,11 @@
     <small class="text-muted">Hosted zone: {{ hosted_zone }} | CNAME target is fixed to {{ hosted_zone }}</small>
   </div>
   <div class="d-flex gap-2">
+    <form method="post" action="{{ url_for('dns_sync_dokploy') }}" data-loading="true" class="d-inline-block">
+      <button class="btn btn-refresh" type="submit" data-loading-text="Syncing">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Dokploy Domains
+      </button>
+    </form>
     <button class="btn btn-refresh js-refresh-btn" type="button" data-loading-text="Refreshing">
       <i class="bi bi-arrow-clockwise me-1"></i>Refresh
     </button>
@@ -44,29 +49,27 @@
           <td>{{ record.created_on or '-' }}</td>
           <td>{{ record.updated_by or '-' }}</td>
           <td>{{ record.updated_on or '-' }}</td>
-          <td class="text-end">
+          <td class="text-end action-stack">
             {% if not record.protected %}
-            <span class="action-stack">
-              <button
-                class="btn btn-sm action-icon-btn edit-btn"
-                data-name="{{ record.name }}"
-                data-target="{{ record.value }}"
-                data-ttl="{{ record.ttl }}"
-                data-bs-toggle="modal"
-                data-bs-target="#editModal"
-                title="Edit"
-              ><i class="bi bi-pencil-square"></i></button>
+            <button
+              class="btn btn-sm action-icon-btn edit-btn"
+              data-name="{{ record.name }}"
+              data-target="{{ record.value }}"
+              data-ttl="{{ record.ttl }}"
+              data-bs-toggle="modal"
+              data-bs-target="#editModal"
+              title="Edit"
+            ><i class="bi bi-pencil-square"></i></button>
 
-              <button
-                class="btn btn-sm action-icon-btn danger delete-btn"
-                data-name="{{ record.name }}"
-                data-target="{{ record.value }}"
-                data-ttl="{{ record.ttl }}"
-                data-bs-toggle="modal"
-                data-bs-target="#deleteModal"
-                title="Delete"
-              ><i class="bi bi-trash3"></i></button>
-            </span>
+            <button
+              class="btn btn-sm action-icon-btn danger delete-btn"
+              data-name="{{ record.name }}"
+              data-target="{{ record.value }}"
+              data-ttl="{{ record.ttl }}"
+              data-bs-toggle="modal"
+              data-bs-target="#deleteModal"
+              title="Delete"
+            ><i class="bi bi-trash3"></i></button>
             {% else %}
             <span class="text-muted small">Protected</span>
             {% endif %}

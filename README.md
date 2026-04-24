@@ -29,6 +29,9 @@ Copy `env_sample` to `.env` and fill values:
 - `MONGODB_DB_NAME` (default: `dokploy`)
 - `HOSTED_ZONE_ID` (optional if `HOSTED_ZONE_NAME` is set and discoverable)
 - `HOSTED_ZONE_NAME` (default: `apps.poc.darwinbox.io`)
+- `DOKPLOY_BASE_URL` (Dokploy server URL, for example `https://dokploy.example.com`)
+- `DOKPLOY_API_KEY` (Dokploy API key sent as `x-api-key`)
+- `DOKPLOY_API_TIMEOUT_SECONDS` (default: `20`)
 
 ## Run locally
 
