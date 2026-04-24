@@ -15,6 +15,11 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   font-family: "Manrope", sans-serif;
@@ -113,13 +118,17 @@ h4 {
 }
 
 .app-shell {
+  min-height: 100dvh;
   min-height: 100vh;
+  align-items: stretch;
   display: grid;
   grid-template-columns: 230px 1fr;
   background: linear-gradient(180deg, var(--bg-a), #f7fbfd);
 }
 
 .sidebar {
+  min-height: 100dvh;
+  min-height: 100vh;
   background: linear-gradient(180deg, #0d2f4a, #113a54);
   color: #d9ebf5;
   padding: 14px;
@@ -183,6 +192,8 @@ h4 {
 
 .main {
   min-width: 0;
+  min-height: 100dvh;
+  min-height: 100vh;
 }
 
 .topbar {
@@ -256,6 +267,7 @@ h4 {
 
 .content-wrap {
   padding: 0 18px 18px;
+  min-height: calc(100dvh - 60px);
 }
 
 .hero-card,
@@ -412,7 +424,8 @@ h4 {
   .sidebar {
     position: fixed;
     z-index: 1030;
-    height: 100vh;
+    height: 100dvh;
+    min-height: 100dvh;
     left: 0;
     top: 0;
     width: 260px;
