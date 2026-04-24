@@ -326,6 +326,16 @@ h4 {
   border-color: var(--border);
 }
 
+.table-modern thead th:first-child,
+.table-modern tbody td:first-child {
+  border-left: 1px solid var(--border);
+}
+
+.table-modern thead th:last-child,
+.table-modern tbody td:last-child {
+  border-right: 1px solid var(--border);
+}
+
 .table-modern td {
   padding: 7px 10px;
   font-size: 12px;
