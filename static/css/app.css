@@ -319,11 +319,22 @@ h4 {
   border-bottom: 1px solid var(--border);
   font-size: 11px;
   padding: 8px 10px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .table-modern td,
 .table-modern th {
   border-color: var(--border);
+}
+
+.panel-card .table-responsive {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.table-modern {
+  margin-bottom: 0;
 }
 
 .table-modern thead th:first-child,
@@ -339,10 +350,21 @@ h4 {
 .table-modern td {
   padding: 7px 10px;
   font-size: 12px;
+  vertical-align: middle;
+}
+
+.table-modern tbody tr {
+  background: #fff;
+}
+
+.table-modern tbody tr:hover {
+  background: #f8fbfd;
 }
 
 .action-stack {
   display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 6px;
 }
 

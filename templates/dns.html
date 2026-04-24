@@ -49,27 +49,29 @@
           <td>{{ record.created_on or '-' }}</td>
           <td>{{ record.updated_by or '-' }}</td>
           <td>{{ record.updated_on or '-' }}</td>
-          <td class="text-end action-stack">
+          <td class="text-end">
             {% if not record.protected %}
-            <button
-              class="btn btn-sm action-icon-btn edit-btn"
-              data-name="{{ record.name }}"
-              data-target="{{ record.value }}"
-              data-ttl="{{ record.ttl }}"
-              data-bs-toggle="modal"
-              data-bs-target="#editModal"
-              title="Edit"
-            ><i class="bi bi-pencil-square"></i></button>
+            <span class="action-stack">
+              <button
+                class="btn btn-sm action-icon-btn edit-btn"
+                data-name="{{ record.name }}"
+                data-target="{{ record.value }}"
+                data-ttl="{{ record.ttl }}"
+                data-bs-toggle="modal"
+                data-bs-target="#editModal"
+                title="Edit"
+              ><i class="bi bi-pencil-square"></i></button>
 
-            <button
-              class="btn btn-sm action-icon-btn danger delete-btn"
-              data-name="{{ record.name }}"
-              data-target="{{ record.value }}"
-              data-ttl="{{ record.ttl }}"
-              data-bs-toggle="modal"
-              data-bs-target="#deleteModal"
-              title="Delete"
-            ><i class="bi bi-trash3"></i></button>
+              <button
+                class="btn btn-sm action-icon-btn danger delete-btn"
+                data-name="{{ record.name }}"
+                data-target="{{ record.value }}"
+                data-ttl="{{ record.ttl }}"
+                data-bs-toggle="modal"
+                data-bs-target="#deleteModal"
+                title="Delete"
+              ><i class="bi bi-trash3"></i></button>
+            </span>
             {% else %}
             <span class="text-muted small">Protected</span>
             {% endif %}
@@ -84,6 +86,38 @@
     </table>
   </div>
 </div>
+
+{% if total_records > 0 %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mt-2 px-1 gap-2">
+  <small class="text-muted">
+    Showing {{ start_index }} to {{ end_index }} of {{ total_records }} records
+  </small>
+
+  {% if total_pages > 1 %}
+  <nav aria-label="DNS records pagination">
+    <ul class="pagination pagination-sm mb-0">
+      <li class="page-item {{ 'disabled' if not has_prev else '' }}">
+        <a class="page-link" href="{{ url_for('dns_records', page=prev_page) }}" aria-label="Previous">
+          <span aria-hidden="true">&laquo;</span>
+        </a>
+      </li>
+
+      {% for page_number in range(1, total_pages + 1) %}
+      <li class="page-item {{ 'active' if page_number == page else '' }}">
+        <a class="page-link" href="{{ url_for('dns_records', page=page_number) }}">{{ page_number }}</a>
+      </li>
+      {% endfor %}
+
+      <li class="page-item {{ 'disabled' if not has_next else '' }}">
+        <a class="page-link" href="{{ url_for('dns_records', page=next_page) }}" aria-label="Next">
+          <span aria-hidden="true">&raquo;</span>
+        </a>
+      </li>
+    </ul>
+  </nav>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="modal fade" id="createModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">

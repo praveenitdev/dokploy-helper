@@ -360,6 +360,12 @@ def dns_records():
     if login_redirect:
         return login_redirect
 
+    page = max(request.args.get("page", default=1, type=int) or 1, 1)
+    page_size = 10
+    total_records = 0
+    total_pages = 1
+    start_index = 0
+    end_index = 0
     records = []
     try:
         records = _route53_service().list_cname_records()
@@ -370,8 +376,16 @@ def dns_records():
             if record.get("value", "").strip().rstrip(".").lower() == expected_target
         ]
 
-        metadata_map = _dns_repository().get_metadata_map([r.get("name", "") for r in records])
-        for record in records:
+        total_records = len(records)
+        total_pages = max((total_records + page_size - 1) // page_size, 1)
+        page = min(page, total_pages)
+
+        start_index = (page - 1) * page_size
+        end_index = min(start_index + page_size, total_records)
+        page_records = records[start_index:end_index]
+
+        metadata_map = _dns_repository().get_metadata_map([r.get("name", "") for r in page_records])
+        for record in page_records:
             key = record.get("name", "").strip().rstrip(".").lower()
             meta = metadata_map.get(key, {})
             status = _record_availability_status(record.get("name", ""), expected_target)
@@ -384,6 +398,8 @@ def dns_records():
             record["status_label"] = status["label"]
             record["status_class"] = status["class"]
             record["status_message"] = status["message"]
+
+        records = page_records
     except Exception as exc:  # pylint: disable=broad-except
         flash(f"Unable to fetch Route53 records: {exc}", "danger")
 
@@ -393,6 +409,16 @@ def dns_records():
         user=session.get("user"),
         hosted_zone=app_config.HOSTED_ZONE_NAME,
         records=records,
+        page=page,
+        page_size=page_size,
+        total_records=total_records,
+        total_pages=total_pages,
+        has_prev=page > 1,
+        has_next=page < total_pages,
+        prev_page=page - 1,
+        next_page=page + 1,
+        start_index=(start_index + 1) if total_records > 0 else 0,
+        end_index=end_index,
     )
 
 
