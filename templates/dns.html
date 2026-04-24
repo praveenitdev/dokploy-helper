@@ -34,7 +34,7 @@
       <tbody>
       {% for record in records %}
         <tr>
-          <td>{{ record.name }}</td>
+          <td title="{{ record.name }}">{{ record.display_name or record.name }}</td>
           <td>
             <span class="badge badge-status {{ record.status_class }}" title="{{ record.status_message }}">
               {{ record.status_label }}

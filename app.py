@@ -122,6 +122,18 @@ def _build_record_name(subdomain: str) -> str:
     return f"{subdomain}.{_hosted_zone_name()}"
 
 
+def _display_record_name(record_name: str) -> str:
+    normalized = (record_name or "").strip().rstrip(".")
+    hosted_zone = _hosted_zone_name()
+    lower_name = normalized.lower()
+    zone_suffix = f".{hosted_zone}"
+
+    if lower_name.endswith(zone_suffix):
+        return normalized[: -len(zone_suffix)]
+
+    return normalized
+
+
 def _default_cname_target() -> str:
     return _hosted_zone_name()
 
@@ -354,6 +366,7 @@ def dns_records():
             key = record.get("name", "").strip().rstrip(".").lower()
             meta = metadata_map.get(key, {})
             status = _record_availability_status(record.get("name", ""), expected_target)
+            record["display_name"] = _display_record_name(record.get("name", ""))
             record["protected"] = bool(meta.get("protected", False))
             record["created_by"] = meta.get("created_by", "-")
             record["created_on"] = _format_dt(meta.get("created_on"))
