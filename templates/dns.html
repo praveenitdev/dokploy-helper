@@ -44,27 +44,29 @@
           <td>{{ record.created_on or '-' }}</td>
           <td>{{ record.updated_by or '-' }}</td>
           <td>{{ record.updated_on or '-' }}</td>
-          <td class="text-end action-stack">
+          <td class="text-end">
             {% if not record.protected %}
-            <button
-              class="btn btn-sm action-icon-btn edit-btn"
-              data-name="{{ record.name }}"
-              data-target="{{ record.value }}"
-              data-ttl="{{ record.ttl }}"
-              data-bs-toggle="modal"
-              data-bs-target="#editModal"
-              title="Edit"
-            ><i class="bi bi-pencil-square"></i></button>
+            <span class="action-stack">
+              <button
+                class="btn btn-sm action-icon-btn edit-btn"
+                data-name="{{ record.name }}"
+                data-target="{{ record.value }}"
+                data-ttl="{{ record.ttl }}"
+                data-bs-toggle="modal"
+                data-bs-target="#editModal"
+                title="Edit"
+              ><i class="bi bi-pencil-square"></i></button>
 
-            <button
-              class="btn btn-sm action-icon-btn danger delete-btn"
-              data-name="{{ record.name }}"
-              data-target="{{ record.value }}"
-              data-ttl="{{ record.ttl }}"
-              data-bs-toggle="modal"
-              data-bs-target="#deleteModal"
-              title="Delete"
-            ><i class="bi bi-trash3"></i></button>
+              <button
+                class="btn btn-sm action-icon-btn danger delete-btn"
+                data-name="{{ record.name }}"
+                data-target="{{ record.value }}"
+                data-ttl="{{ record.ttl }}"
+                data-bs-toggle="modal"
+                data-bs-target="#deleteModal"
+                title="Delete"
+              ><i class="bi bi-trash3"></i></button>
+            </span>
             {% else %}
             <span class="text-muted small">Protected</span>
             {% endif %}
