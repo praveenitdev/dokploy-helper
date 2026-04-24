@@ -42,6 +42,9 @@ HOSTED_ZONE_NAME = _get_env("HOSTED_ZONE_NAME") or "apps.poc.darwinbox.io"
 DOKPLOY_BASE_URL = _get_env("DOKPLOY_BASE_URL")
 DOKPLOY_API_KEY = _get_env("DOKPLOY_API_KEY")
 DOKPLOY_API_TIMEOUT_SECONDS = int(_get_env("DOKPLOY_API_TIMEOUT_SECONDS") or "20")
+DOKPLOY_AUTO_SYNC_ENABLED = _get_env("DOKPLOY_AUTO_SYNC_ENABLED").lower() in {"1", "true", "yes", "on"}
+DOKPLOY_SYNC_INTERVAL_SECONDS = int(_get_env("DOKPLOY_SYNC_INTERVAL_SECONDS") or "30")
+DOKPLOY_SYNC_ACTOR = _get_env("DOKPLOY_SYNC_ACTOR") or "System"
 PUBLIC_BASE_URL = _get_env("PUBLIC_BASE_URL")
 PREFERRED_URL_SCHEME = _get_env("PREFERRED_URL_SCHEME") or (
     "https" if PUBLIC_BASE_URL.lower().startswith("https://") else "http"

@@ -565,7 +565,7 @@ def dns_sync_dokploy():
     protected_skipped = 0
     outside_zone_skipped = 0
     target_name = _default_cname_target()
-    actor_email = _actor_email()
+    actor_email = "System"
 
     try:
         domains = _dokploy_service().list_project_service_domains()
