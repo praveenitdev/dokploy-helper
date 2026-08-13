@@ -3,39 +3,330 @@
 {% block content %}
 <div class="hero-card">
   <div>
-    <p class="eyebrow">Welcome</p>
-    <h2>Infrastructure control center</h2>
-    <p class="text-muted mb-0">Use the left menu to manage Route53 records and upcoming platform helpers.</p>
+    <p class="eyebrow">Overview</p>
+    <h2>DNS & platform metrics</h2>
+    <p class="text-muted mb-0">Hosted zone <strong>{{ hosted_zone }}</strong> · last 14 days trends</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('dns_records') }}" class="btn btn-brand btn-sm">
+      <i class="bi bi-globe2 me-1"></i>Manage DNS
+    </a>
+    <a href="{{ url_for('audit_page') }}" class="btn btn-refresh btn-sm">
+      <i class="bi bi-clipboard-data me-1"></i>Audit
+    </a>
   </div>
 </div>
 
 <div class="row g-3 mt-1">
-  <div class="col-md-4">
-    <a href="{{ url_for('dns_records') }}" class="feature-card">
-      <div class="feature-icon"><i class="bi bi-globe2"></i></div>
-      <div>
-        <h6 class="mb-1">DNS Management</h6>
-        <p class="mb-0 text-muted">Create and maintain application CNAME records quickly.</p>
-      </div>
-    </a>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card">
+      <div class="metric-label"><i class="bi bi-globe2 me-1"></i>Total Domains</div>
+      <div class="metric-value">{{ route53_total }}</div>
+      <div class="metric-hint">Route53 CNAMEs in zone</div>
+    </div>
   </div>
-  <div class="col-md-4">
-    <a href="{{ url_for('audit_page') }}" class="feature-card">
-      <div class="feature-icon"><i class="bi bi-clipboard-data"></i></div>
-      <div>
-        <h6 class="mb-1">Audit Logs</h6>
-        <p class="mb-0 text-muted">Track every action with actor, status, and timestamps.</p>
-      </div>
-    </a>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card">
+      <div class="metric-label"><i class="bi bi-box-seam me-1"></i>Dokploy Sourced</div>
+      <div class="metric-value">{{ dns_metrics.dokploy_count }}</div>
+      <div class="metric-hint">{{ dns_metrics.manual_count }} manual · {{ dns_metrics.unknown_source_count }} unknown</div>
+    </div>
   </div>
-  <div class="col-md-4">
-    <a href="{{ url_for('databases') }}" class="feature-card">
-      <div class="feature-icon"><i class="bi bi-database"></i></div>
-      <div>
-        <h6 class="mb-1">Databases</h6>
-        <p class="mb-0 text-muted">Prepare for upcoming platform database operations.</p>
-      </div>
-    </a>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card">
+      <div class="metric-label"><i class="bi bi-plus-circle me-1"></i>New (7d / 30d)</div>
+      <div class="metric-value">{{ dns_metrics.created_last_7_days }} <span class="metric-split">/ {{ dns_metrics.created_last_30_days }}</span></div>
+      <div class="metric-hint">Domains created in helper DB</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card">
+      <div class="metric-label"><i class="bi bi-shield-lock me-1"></i>Protected</div>
+      <div class="metric-value">{{ dns_metrics.protected_count }}</div>
+      <div class="metric-hint">Skipped by Dokploy sync</div>
+    </div>
   </div>
 </div>
+
+<div class="row g-3 mt-1">
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-info">
+      <div class="metric-label"><i class="bi bi-activity me-1"></i>Audit Events (7d)</div>
+      <div class="metric-value">{{ audit_metrics.events_last_7_days }}</div>
+      <div class="metric-hint">{{ audit_metrics.total_events }} all time</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-danger">
+      <div class="metric-label"><i class="bi bi-exclamation-triangle me-1"></i>Failures (7d)</div>
+      <div class="metric-value">{{ audit_metrics.failed_last_7_days }}</div>
+      <div class="metric-hint">Across all modules</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-success">
+      <div class="metric-label"><i class="bi bi-arrow-repeat me-1"></i>Sync Runs (7d)</div>
+      <div class="metric-value">{{ audit_metrics.sync_events_last_7_days }}</div>
+      <div class="metric-hint">Auto + manual Dokploy sync</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-warning">
+      <div class="metric-label"><i class="bi bi-x-octagon me-1"></i>Sync Failures (7d)</div>
+      <div class="metric-value">{{ audit_metrics.sync_failed_last_7_days }}</div>
+      <div class="metric-hint">Needs attention if rising</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-4">
+    <div class="card panel-card chart-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Domain Source</h6>
+          <span class="text-muted small">Tracked in helper</span>
+        </div>
+        <div class="chart-wrap chart-wrap-sm">
+          <canvas id="sourceChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card panel-card chart-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Domains Created</h6>
+          <span class="text-muted small">Last 14 days</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="createdTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-7">
+    <div class="card panel-card chart-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Audit Activity</h6>
+          <span class="text-muted small">Success vs failed</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="activityTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card panel-card chart-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Top Projects</h6>
+          <span class="text-muted small">By Dokploy domains</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="projectsChart"></canvas>
+        </div>
+        {% if not dns_metrics.top_projects %}
+        <p class="text-muted small mb-0 mt-2">No Dokploy project metadata yet. Run a sync to populate.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-5">
+    <div class="card panel-card h-100">
+      <div class="card-body">
+        <h6 class="mb-3">Top Actions (7d)</h6>
+        {% if audit_metrics.top_actions %}
+        <div class="action-list">
+          {% for item in audit_metrics.top_actions %}
+          <div class="action-row">
+            <span class="action-name">{{ item.action }}</span>
+            <span class="action-count">{{ item.count }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">No audit actions in the last 7 days.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card panel-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Recent Activity</h6>
+          <a href="{{ url_for('audit_page') }}" class="small">View all</a>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-modern align-middle mb-0">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Action</th>
+                <th>Status</th>
+                <th>Entity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in audit_metrics.recent_events %}
+              <tr>
+                <td class="text-nowrap">{{ event.event_on_fmt or '-' }}</td>
+                <td>{{ event.action or '-' }}</td>
+                <td>
+                  <span class="badge badge-status {{ 'success' if event.status == 'SUCCESS' else 'danger' if event.status == 'FAILED' else 'neutral' }}">
+                    {{ event.status or '-' }}
+                  </span>
+                </td>
+                <td title="{{ event.entity_name }}">{{ event.entity_name or '-' }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="text-center text-muted py-3">No recent events.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const chartPayload = {{ chart_payload | tojson }};
+  const brand = '#0c7b93';
+  const brand2 = '#16a085';
+  const danger = '#b4233f';
+  const muted = '#8aa0b2';
+
+  function shortDayLabel(isoDay) {
+    if (!isoDay || isoDay.length < 10) return isoDay;
+    return isoDay.slice(5);
+  }
+
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: { boxWidth: 12, font: { size: 11 } },
+      },
+    },
+  };
+
+  const sourceValues = chartPayload.source.values || [];
+  const hasSourceData = sourceValues.some((value) => Number(value) > 0);
+  new Chart(document.getElementById('sourceChart'), {
+    type: 'doughnut',
+    data: {
+      labels: chartPayload.source.labels,
+      datasets: [{
+        data: hasSourceData ? sourceValues : [1],
+        backgroundColor: hasSourceData ? [brand2, brand, muted] : ['#e5eef3'],
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      ...commonOptions,
+      cutout: '62%',
+      plugins: {
+        ...commonOptions.plugins,
+        tooltip: { enabled: hasSourceData },
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById('createdTrendChart'), {
+    type: 'line',
+    data: {
+      labels: (chartPayload.createdTrend.labels || []).map(shortDayLabel),
+      datasets: [{
+        label: 'Domains created',
+        data: chartPayload.createdTrend.values || [],
+        borderColor: brand,
+        backgroundColor: 'rgba(12, 123, 147, 0.12)',
+        fill: true,
+        tension: 0.35,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+      }],
+    },
+    options: {
+      ...commonOptions,
+      scales: {
+        x: { ticks: { font: { size: 10 }, maxRotation: 0 } },
+        y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById('activityTrendChart'), {
+    type: 'bar',
+    data: {
+      labels: (chartPayload.activityTrend.labels || []).map(shortDayLabel),
+      datasets: [
+        {
+          label: 'Success',
+          data: chartPayload.activityTrend.success || [],
+          backgroundColor: brand2,
+          borderRadius: 4,
+        },
+        {
+          label: 'Failed',
+          data: chartPayload.activityTrend.failed || [],
+          backgroundColor: danger,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      ...commonOptions,
+      scales: {
+        x: { stacked: true, ticks: { font: { size: 10 }, maxRotation: 0 } },
+        y: { stacked: true, beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+      },
+    },
+  });
+
+  const projectLabels = chartPayload.projects.labels || [];
+  const projectValues = chartPayload.projects.values || [];
+  new Chart(document.getElementById('projectsChart'), {
+    type: 'bar',
+    data: {
+      labels: projectLabels.length ? projectLabels : ['No data'],
+      datasets: [{
+        label: 'Domains',
+        data: projectLabels.length ? projectValues : [0],
+        backgroundColor: brand,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      ...commonOptions,
+      indexAxis: 'y',
+      plugins: {
+        ...commonOptions.plugins,
+        legend: { display: false },
+      },
+      scales: {
+        x: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+        y: { ticks: { font: { size: 10 } } },
+      },
+    },
+  });
+</script>
 {% endblock %}

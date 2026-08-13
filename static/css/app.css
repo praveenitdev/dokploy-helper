@@ -282,8 +282,121 @@ h4 {
   min-height: 130px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 16px;
   background: linear-gradient(135deg, #fff, var(--surface-2));
+}
+
+.metric-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  box-shadow: 0 8px 20px rgba(13, 47, 74, 0.06);
+  height: 100%;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.metric-split {
+  font-size: 18px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.metric-hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.metric-card.tone-info {
+  border-color: #c9e4ef;
+  background: linear-gradient(180deg, #f7fcfe, #fff);
+}
+
+.metric-card.tone-success {
+  border-color: #c8ebe3;
+  background: linear-gradient(180deg, #f5fcfa, #fff);
+}
+
+.metric-card.tone-warning {
+  border-color: #f0e0c4;
+  background: linear-gradient(180deg, #fffaf2, #fff);
+}
+
+.metric-card.tone-danger {
+  border-color: #f0d0d7;
+  background: linear-gradient(180deg, #fff7f8, #fff);
+}
+
+.chart-card .card-body {
+  padding: 14px;
+}
+
+.chart-wrap {
+  position: relative;
+  height: 240px;
+}
+
+.chart-wrap-sm {
+  height: 220px;
+}
+
+.action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.action-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.action-name {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.action-count {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.filter-bar .card-body {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.filter-bar .form-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .feature-card {
