@@ -678,29 +678,6 @@ def dns_records():
     except Exception as exc:  # pylint: disable=broad-except
         flash(f"Unable to fetch Route53 records: {exc}", "danger")
 
-    filters_active = any(
-        [
-            bool(search_query),
-            source_filter != "all",
-            project_filter != "all",
-            environment_filter != "all",
-            service_filter != "all",
-            created_by_filter != "all",
-            updated_by_filter != "all",
-            protected_filter != "all",
-        ]
-    )
-    filter_query = {
-        "q": search_query or None,
-        "source": source_filter if source_filter != "all" else None,
-        "project": project_filter if project_filter != "all" else None,
-        "environment": environment_filter if environment_filter != "all" else None,
-        "service": service_filter if service_filter != "all" else None,
-        "created_by": created_by_filter if created_by_filter != "all" else None,
-        "updated_by": updated_by_filter if updated_by_filter != "all" else None,
-        "protected": protected_filter if protected_filter != "all" else None,
-    }
-
     return render_template(
         "dns.html",
         section="dns",
