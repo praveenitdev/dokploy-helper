@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Set
+from typing import Any
 
 import requests
 
@@ -36,55 +36,127 @@ class DokployService:
         except ValueError as exc:
             raise RuntimeError(f"Dokploy API returned non-JSON response for {endpoint}") from exc
 
-    def _extract_ids(self, payload: Any, key_name: str, out: Set[str]) -> None:
-        if isinstance(payload, dict):
-            for key, value in payload.items():
-                if key == key_name and isinstance(value, str) and value.strip():
-                    out.add(value.strip())
-                self._extract_ids(value, key_name, out)
-            return
+    def _normalize_host(self, value: Any) -> str:
+        if not isinstance(value, str):
+            return ""
+        return value.strip().rstrip(".").lower()
 
-        if isinstance(payload, list):
-            for item in payload:
-                self._extract_ids(item, key_name, out)
+    def _domain_entries_from_payload(
+        self,
+        payload: Any,
+        *,
+        project_name: str,
+        environment_name: str,
+        service_name: str,
+        service_type: str,
+        service_app_name: str,
+    ) -> list[dict[str, str]]:
+        if not isinstance(payload, list):
+            return []
 
-    def _extract_domains(self, payload: Any, out: Set[str]) -> None:
-        if isinstance(payload, dict):
-            for key, value in payload.items():
-                lower_key = key.lower()
-                if lower_key in {"host", "domain"} and isinstance(value, str):
-                    clean = value.strip().rstrip(".").lower()
-                    if clean:
-                        out.add(clean)
+        entries: list[dict[str, str]] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
 
-                if lower_key == "domains" and isinstance(value, list):
-                    for item in value:
-                        self._extract_domains(item, out)
+            host = self._normalize_host(item.get("host") or item.get("domain"))
+            if not host:
+                continue
 
-                self._extract_domains(value, out)
-            return
+            application = item.get("application") if isinstance(item.get("application"), dict) else {}
+            compose = item.get("compose") if isinstance(item.get("compose"), dict) else {}
 
-        if isinstance(payload, list):
-            for item in payload:
-                self._extract_domains(item, out)
+            resolved_service_name = (
+                service_name
+                or str(application.get("name") or "").strip()
+                or str(compose.get("name") or "").strip()
+            )
+            resolved_service_app_name = (
+                service_app_name
+                or str(application.get("appName") or "").strip()
+                or str(compose.get("appName") or "").strip()
+            )
+
+            entries.append(
+                {
+                    "host": host,
+                    "project_name": project_name,
+                    "environment_name": environment_name,
+                    "service_name": resolved_service_name,
+                    "service_type": service_type,
+                    "service_app_name": resolved_service_app_name,
+                    "domain_created_at": str(item.get("createdAt") or "").strip(),
+                    "domain_id": str(item.get("domainId") or "").strip(),
+                }
+            )
+
+        return entries
+
+    def list_project_service_domain_details(self) -> list[dict[str, str]]:
+        projects_payload = self._get("project.all")
+        if not isinstance(projects_payload, list):
+            return []
+
+        domains_by_host: dict[str, dict[str, str]] = {}
+
+        for project in projects_payload:
+            if not isinstance(project, dict):
+                continue
+
+            project_name = str(project.get("name") or "").strip()
+            environments = project.get("environments")
+            if not isinstance(environments, list):
+                continue
+
+            for environment in environments:
+                if not isinstance(environment, dict):
+                    continue
+
+                environment_name = str(environment.get("name") or "").strip()
+
+                applications = environment.get("applications")
+                if isinstance(applications, list):
+                    for application in applications:
+                        if not isinstance(application, dict):
+                            continue
+
+                        application_id = str(application.get("applicationId") or "").strip()
+                        if not application_id:
+                            continue
+
+                        payload = self._get("domain.byApplicationId", {"applicationId": application_id})
+                        for entry in self._domain_entries_from_payload(
+                            payload,
+                            project_name=project_name,
+                            environment_name=environment_name,
+                            service_name=str(application.get("name") or "").strip(),
+                            service_type="application",
+                            service_app_name=str(application.get("appName") or "").strip(),
+                        ):
+                            domains_by_host[entry["host"]] = entry
+
+                composes = environment.get("compose")
+                if isinstance(composes, list):
+                    for compose in composes:
+                        if not isinstance(compose, dict):
+                            continue
+
+                        compose_id = str(compose.get("composeId") or "").strip()
+                        if not compose_id:
+                            continue
+
+                        payload = self._get("domain.byComposeId", {"composeId": compose_id})
+                        for entry in self._domain_entries_from_payload(
+                            payload,
+                            project_name=project_name,
+                            environment_name=environment_name,
+                            service_name=str(compose.get("name") or "").strip(),
+                            service_type="compose",
+                            service_app_name=str(compose.get("appName") or "").strip(),
+                        ):
+                            domains_by_host[entry["host"]] = entry
+
+        return [domains_by_host[host] for host in sorted(domains_by_host.keys())]
 
     def list_project_service_domains(self) -> list[str]:
-        projects_payload = self._get("project.all")
-
-        domains: Set[str] = set()
-        self._extract_domains(projects_payload, domains)
-
-        application_ids: Set[str] = set()
-        compose_ids: Set[str] = set()
-        self._extract_ids(projects_payload, "applicationId", application_ids)
-        self._extract_ids(projects_payload, "composeId", compose_ids)
-
-        for application_id in application_ids:
-            payload = self._get("domain.byApplicationId", {"applicationId": application_id})
-            self._extract_domains(payload, domains)
-
-        for compose_id in compose_ids:
-            payload = self._get("domain.byComposeId", {"composeId": compose_id})
-            self._extract_domains(payload, domains)
-
-        return sorted(domains)
+        return [entry["host"] for entry in self.list_project_service_domain_details()]

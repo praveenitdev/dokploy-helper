@@ -16,6 +16,28 @@ def _default_cname_target() -> str:
     return _hosted_zone_name()
 
 
+def _parse_iso_datetime(value) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def _route53_service() -> Route53Service:
     return Route53Service(
         hosted_zone_id=app_config.HOSTED_ZONE_ID,
@@ -77,12 +99,12 @@ def sync_once() -> dict[str, int]:
     outside_zone_skipped = 0
     target_name = _default_cname_target()
 
-    domains = _dokploy_service().list_project_service_domains()
+    domains = _dokploy_service().list_project_service_domain_details()
     route53 = _route53_service()
     dns_repo = _dns_repository()
 
     for domain in domains:
-        record_name = domain.strip().rstrip(".").lower()
+        record_name = str(domain.get("host") or "").strip().rstrip(".").lower()
         if not record_name.endswith(suffix) or record_name == hosted_zone:
             outside_zone_skipped += 1
             continue
@@ -96,6 +118,14 @@ def sync_once() -> dict[str, int]:
             record_name=record_name,
             target=target_name,
             actor_email=app_config.DOKPLOY_SYNC_ACTOR,
+            source="dokploy",
+            project_name=str(domain.get("project_name") or ""),
+            environment_name=str(domain.get("environment_name") or ""),
+            service_name=str(domain.get("service_name") or ""),
+            service_type=str(domain.get("service_type") or ""),
+            service_app_name=str(domain.get("service_app_name") or ""),
+            domain_created_at=_parse_iso_datetime(domain.get("domain_created_at")),
+            domain_id=str(domain.get("domain_id") or ""),
         )
         synced_count += 1
 

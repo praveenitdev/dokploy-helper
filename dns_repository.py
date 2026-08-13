@@ -12,23 +12,74 @@ class DNSRepository:
         self.collection = self.client[database_name][collection_name]
         self.audit_collection = self.client[database_name]["dns_audit"]
 
-    def upsert_record(self, record_name: str, target: str, actor_email: str) -> None:
+    def upsert_record(
+        self,
+        record_name: str,
+        target: str,
+        actor_email: str,
+        *,
+        source: str = "manual",
+        project_name: str = "",
+        environment_name: str = "",
+        service_name: str = "",
+        service_type: str = "",
+        service_app_name: str = "",
+        domain_created_at: datetime | None = None,
+        domain_id: str = "",
+    ) -> None:
         now = datetime.now(timezone.utc)
+        normalized_source = (source or "manual").strip().lower()
+        if normalized_source not in {"manual", "dokploy"}:
+            normalized_source = "manual"
+
+        display_actor = "Dokploy" if normalized_source == "dokploy" else actor_email
+        created_on_value = domain_created_at or now
+
+        set_fields = {
+            "target": target,
+            "updated_on": now,
+            "updated_by": display_actor,
+            "source": normalized_source,
+            "project_name": project_name or "",
+            "environment_name": environment_name or "",
+            "service_name": service_name or "",
+            "service_type": service_type or "",
+            "service_app_name": service_app_name or "",
+            "domain_id": domain_id or "",
+        }
+        if domain_created_at is not None:
+            set_fields["domain_created_at"] = domain_created_at
+
+        if normalized_source == "manual":
+            set_fields["project_name"] = ""
+            set_fields["environment_name"] = ""
+            set_fields["service_name"] = ""
+            set_fields["service_type"] = ""
+            set_fields["service_app_name"] = ""
+            set_fields["domain_id"] = ""
+
         self.collection.update_one(
             {"record_name": record_name},
             {
-                "$set": {
-                    "target": target,
-                    "updated_on": now,
-                    "updated_by": actor_email,
-                },
+                "$set": set_fields,
                 "$setOnInsert": {
-                    "created_on": now,
-                    "created_by": actor_email,
+                    "created_on": created_on_value,
+                    "created_by": display_actor,
                 },
             },
             upsert=True,
         )
+
+        if normalized_source == "dokploy" and domain_created_at is not None:
+            self.collection.update_one(
+                {"record_name": record_name, "source": "dokploy"},
+                {
+                    "$set": {
+                        "created_on": domain_created_at,
+                        "created_by": "Dokploy",
+                    }
+                },
+            )
 
     def delete_record(self, record_name: str) -> None:
         self.collection.delete_one({"record_name": record_name})
@@ -48,6 +99,14 @@ class DNSRepository:
                 "created_on": 1,
                 "updated_by": 1,
                 "updated_on": 1,
+                "source": 1,
+                "project_name": 1,
+                "environment_name": 1,
+                "service_name": 1,
+                "service_type": 1,
+                "service_app_name": 1,
+                "domain_created_at": 1,
+                "domain_id": 1,
             },
         )
 
