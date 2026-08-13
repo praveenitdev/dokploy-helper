@@ -29,7 +29,7 @@ Copy `env_sample` to `.env` and fill values:
 - `MONGODB_DB_NAME` (default: `dokploy`)
 - `HOSTED_ZONE_ID` (optional if `HOSTED_ZONE_NAME` is set and discoverable)
 - `HOSTED_ZONE_NAME` (default: `apps.poc.darwinbox.io`)
-- `DOKPLOY_BASE_URL` (Dokploy server URL, for example `https://dokploy.example.com`)
+- `DOKPLOY_BASE_URL` (Dokploy server URL, for example `https://dokploy.example.com`; when deployed as a Dokploy app on the same `dokploy-network`, use `http://dokploy:3000` so the API call stays inside the Docker network)
 - `DOKPLOY_API_KEY` (Dokploy API key sent as `x-api-key`)
 - `DOKPLOY_API_TIMEOUT_SECONDS` (default: `20`)
 - `DOKPLOY_AUTO_SYNC_ENABLED` (`true` to run continuous sync worker)
