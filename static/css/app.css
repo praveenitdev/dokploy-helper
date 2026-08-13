@@ -409,6 +409,47 @@ h4 {
   color: #4d6578;
 }
 
+.source-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.source-badge.source-dokploy,
+.source-actor-dokploy {
+  background: #e7f6f3;
+  color: #0f766e;
+}
+
+.source-badge.source-manual {
+  background: #eef3f8;
+  color: #3d5a73;
+}
+
+.source-badge.source-unknown {
+  background: #f3f1ef;
+  color: #6b5e55;
+}
+
+.source-actor-dokploy {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: help;
+}
+
+.tooltip.source-tooltip .tooltip-inner {
+  max-width: 280px;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  white-space: pre-line;
+}
+
 .form-control,
 .input-group-text,
 .form-select {

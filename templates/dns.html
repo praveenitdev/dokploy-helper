@@ -28,6 +28,7 @@
       <thead>
         <tr>
           <th><i class="bi bi-tag me-1"></i>Name</th>
+          <th><i class="bi bi-diagram-3 me-1"></i>Source</th>
           <th><i class="bi bi-activity me-1"></i>Status</th>
           <th><i class="bi bi-person me-1"></i>Created By</th>
           <th><i class="bi bi-calendar2-check me-1"></i>Created On</th>
@@ -41,11 +42,38 @@
         <tr>
           <td title="{{ record.name }}">{{ record.display_name or record.name }}</td>
           <td>
+            {% if record.source == 'dokploy' %}
+            <span
+              class="badge source-badge source-dokploy"
+              data-bs-toggle="tooltip"
+              data-bs-placement="top"
+              data-bs-custom-class="source-tooltip"
+              title="{{ record.source_tooltip | e }}"
+            >Dokploy</span>
+            {% elif record.source == 'manual' %}
+            <span class="badge source-badge source-manual">Manual</span>
+            {% else %}
+            <span class="badge source-badge source-unknown">Unknown</span>
+            {% endif %}
+          </td>
+          <td>
             <span class="badge badge-status {{ record.status_class }}" title="{{ record.status_message }}">
               {{ record.status_label }}
             </span>
           </td>
-          <td>{{ record.created_by or '-' }}</td>
+          <td>
+            {% if record.source == 'dokploy' %}
+            <span
+              class="source-actor source-actor-dokploy"
+              data-bs-toggle="tooltip"
+              data-bs-placement="top"
+              data-bs-custom-class="source-tooltip"
+              title="{{ record.source_tooltip | e }}"
+            >Dokploy</span>
+            {% else %}
+            {{ record.created_by or '-' }}
+            {% endif %}
+          </td>
           <td>{{ record.created_on or '-' }}</td>
           <td>{{ record.updated_by or '-' }}</td>
           <td>{{ record.updated_on or '-' }}</td>
@@ -79,7 +107,7 @@
         </tr>
       {% else %}
         <tr>
-          <td colspan="7" class="text-center text-muted py-4">No CNAME records found.</td>
+          <td colspan="8" class="text-center text-muted py-4">No CNAME records found.</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -228,6 +256,13 @@
       document.getElementById('delete_target').value = target;
       document.getElementById('delete_ttl').value = ttl;
       document.getElementById('delete_summary').innerText = `${name} -> ${hostedZone}`;
+    });
+  });
+
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((element) => {
+    new bootstrap.Tooltip(element, {
+      trigger: 'hover focus',
+      container: 'body',
     });
   });
 </script>

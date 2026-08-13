@@ -1,5 +1,6 @@
 import os
 import subprocess
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import msal
@@ -147,10 +148,50 @@ def _default_cname_target() -> str:
     return _hosted_zone_name()
 
 
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def _format_dt(value) -> str:
-    if not value:
+    parsed = value if isinstance(value, datetime) else _parse_iso_datetime(value)
+    if not parsed:
         return "-"
-    return value.strftime("%Y-%m-%d %H:%M:%S UTC")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _dokploy_source_tooltip(meta: Dict[str, Any]) -> str:
+    lines = [
+        f"Project: {meta.get('project_name') or '-'}",
+        f"Environment: {meta.get('environment_name') or '-'}",
+        f"Service: {meta.get('service_name') or '-'}",
+    ]
+    service_type = str(meta.get("service_type") or "").strip()
+    if service_type:
+        lines.append(f"Type: {service_type}")
+    service_app_name = str(meta.get("service_app_name") or "").strip()
+    if service_app_name:
+        lines.append(f"App: {service_app_name}")
+    return "\n".join(lines)
 
 
 def _record_availability_status(record_name: str, expected_target: str) -> Dict[str, str]:
@@ -389,12 +430,27 @@ def dns_records():
             key = record.get("name", "").strip().rstrip(".").lower()
             meta = metadata_map.get(key, {})
             status = _record_availability_status(record.get("name", ""), expected_target)
+            source = str(meta.get("source") or "").strip().lower()
+            if source not in {"manual", "dokploy"}:
+                created_by_hint = str(meta.get("created_by") or "").strip().lower()
+                source = "dokploy" if created_by_hint in {"dokploy", "system"} else "manual"
+
+            created_on_value = meta.get("domain_created_at") if source == "dokploy" else meta.get("created_on")
+            if not created_on_value:
+                created_on_value = meta.get("created_on")
+
             record["display_name"] = _display_record_name(record.get("name", ""))
             record["protected"] = bool(meta.get("protected", False))
-            record["created_by"] = meta.get("created_by", "-")
-            record["created_on"] = _format_dt(meta.get("created_on"))
+            record["source"] = source if meta else "unknown"
+            record["source_label"] = {
+                "dokploy": "Dokploy",
+                "manual": "Manual",
+            }.get(source if meta else "unknown", "Unknown")
+            record["created_by"] = "Dokploy" if source == "dokploy" else (meta.get("created_by") or "-")
+            record["created_on"] = _format_dt(created_on_value)
             record["updated_by"] = meta.get("updated_by", "-")
             record["updated_on"] = _format_dt(meta.get("updated_on"))
+            record["source_tooltip"] = _dokploy_source_tooltip(meta) if source == "dokploy" else ""
             record["status_label"] = status["label"]
             record["status_class"] = status["class"]
             record["status_message"] = status["message"]
@@ -488,7 +544,12 @@ def dns_create():
             target=target_name,
             ttl=300,
         )
-        _dns_repository().upsert_record(record_name=record_name, target=target_name, actor_email=_actor_email())
+        _dns_repository().upsert_record(
+            record_name=record_name,
+            target=target_name,
+            actor_email=_actor_email(),
+            source="manual",
+        )
         _log_dns_audit(
             action="CREATE",
             status="SUCCESS",
@@ -537,7 +598,12 @@ def dns_edit():
             raise PermissionError("Target record is protected and cannot be modified")
 
         service.upsert_cname(name=new_name, target=new_target, ttl=300)
-        _dns_repository().upsert_record(record_name=new_name, target=new_target, actor_email=actor_email)
+        _dns_repository().upsert_record(
+            record_name=new_name,
+            target=new_target,
+            actor_email=actor_email,
+            source="manual",
+        )
         if old_name.strip().rstrip(".").lower() != new_name.strip().rstrip(".").lower() or old_target.strip().rstrip(".").lower() != new_target.strip().rstrip(".").lower():
             service.delete_cname(name=old_name, target=old_target, ttl=int(old_ttl))
             _dns_repository().delete_record(record_name=old_name.strip().rstrip(".").lower())
@@ -616,9 +682,9 @@ def dns_sync_dokploy():
     actor_email = "System"
 
     try:
-        domains = _dokploy_service().list_project_service_domains()
+        domains = _dokploy_service().list_project_service_domain_details()
         for domain in domains:
-            record_name = domain.strip().rstrip(".").lower()
+            record_name = str(domain.get("host") or "").strip().rstrip(".").lower()
             if not record_name.endswith(suffix) or record_name == hosted_zone:
                 outside_zone_skipped += 1
                 continue
@@ -632,6 +698,14 @@ def dns_sync_dokploy():
                 record_name=record_name,
                 target=target_name,
                 actor_email=actor_email,
+                source="dokploy",
+                project_name=str(domain.get("project_name") or ""),
+                environment_name=str(domain.get("environment_name") or ""),
+                service_name=str(domain.get("service_name") or ""),
+                service_type=str(domain.get("service_type") or ""),
+                service_app_name=str(domain.get("service_app_name") or ""),
+                domain_created_at=_parse_iso_datetime(domain.get("domain_created_at")),
+                domain_id=str(domain.get("domain_id") or ""),
             )
             synced_count += 1
 
