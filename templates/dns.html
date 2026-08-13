@@ -25,7 +25,7 @@
 <form class="card panel-card filter-bar mb-3" method="get" action="{{ url_for('dns_records') }}">
   <div class="card-body py-3">
     <div class="row g-2 align-items-end">
-      <div class="col-md-6 col-lg-7">
+      <div class="col-lg-4">
         <label class="form-label mb-1" for="dnsSearch">Search</label>
         <div class="input-group">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
@@ -35,12 +35,12 @@
             type="search"
             name="q"
             value="{{ search_query }}"
-            placeholder="Name, project, service, created by..."
+            placeholder="Name, project, service, actor..."
             autocomplete="off"
           >
         </div>
       </div>
-      <div class="col-md-3 col-lg-3">
+      <div class="col-6 col-md-4 col-lg-2">
         <label class="form-label mb-1" for="dnsSource">Source</label>
         <select id="dnsSource" class="form-select" name="source">
           <option value="all" {{ 'selected' if source_filter == 'all' else '' }}>All sources</option>
@@ -49,20 +49,79 @@
           <option value="unknown" {{ 'selected' if source_filter == 'unknown' else '' }}>Unknown</option>
         </select>
       </div>
-      <div class="col-md-3 col-lg-2 d-flex gap-2">
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="dnsProject">Project</label>
+        <select id="dnsProject" class="form-select" name="project">
+          <option value="all" {{ 'selected' if project_filter == 'all' else '' }}>All projects</option>
+          {% for option in filter_options.projects %}
+          <option value="{{ option }}" {{ 'selected' if project_filter == option else '' }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="dnsEnvironment">Environment</label>
+        <select id="dnsEnvironment" class="form-select" name="environment">
+          <option value="all" {{ 'selected' if environment_filter == 'all' else '' }}>All environments</option>
+          {% for option in filter_options.environments %}
+          <option value="{{ option }}" {{ 'selected' if environment_filter == option else '' }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="dnsService">Service</label>
+        <select id="dnsService" class="form-select" name="service">
+          <option value="all" {{ 'selected' if service_filter == 'all' else '' }}>All services</option>
+          {% for option in filter_options.services %}
+          <option value="{{ option }}" {{ 'selected' if service_filter == option else '' }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="dnsCreatedBy">Created By</label>
+        <select id="dnsCreatedBy" class="form-select" name="created_by">
+          <option value="all" {{ 'selected' if created_by_filter == 'all' else '' }}>Anyone</option>
+          {% for option in filter_options.created_by %}
+          <option value="{{ option }}" {{ 'selected' if created_by_filter == option else '' }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="dnsUpdatedBy">Updated By</label>
+        <select id="dnsUpdatedBy" class="form-select" name="updated_by">
+          <option value="all" {{ 'selected' if updated_by_filter == 'all' else '' }}>Anyone</option>
+          {% for option in filter_options.updated_by %}
+          <option value="{{ option }}" {{ 'selected' if updated_by_filter == option else '' }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="dnsProtected">Protected</label>
+        <select id="dnsProtected" class="form-select" name="protected">
+          <option value="all" {{ 'selected' if protected_filter == 'all' else '' }}>All</option>
+          <option value="yes" {{ 'selected' if protected_filter == 'yes' else '' }}>Protected</option>
+          <option value="no" {{ 'selected' if protected_filter == 'no' else '' }}>Unprotected</option>
+        </select>
+      </div>
+      <div class="col-12 col-lg-2 d-flex gap-2">
         <button class="btn btn-brand flex-grow-1" type="submit">Filter</button>
-        {% if search_query or source_filter != 'all' %}
+        {% if filters_active %}
         <a class="btn btn-outline-secondary" href="{{ url_for('dns_records') }}" title="Clear filters">
           <i class="bi bi-x-lg"></i>
         </a>
         {% endif %}
       </div>
     </div>
-    {% if search_query or source_filter != 'all' %}
+    {% if filters_active %}
     <small class="text-muted d-block mt-2">
       Filtered results
-      {% if search_query %}for “{{ search_query }}”{% endif %}
+      {% if search_query %} · q=“{{ search_query }}”{% endif %}
       {% if source_filter != 'all' %} · source={{ source_filter }}{% endif %}
+      {% if project_filter != 'all' %} · project={{ project_filter }}{% endif %}
+      {% if environment_filter != 'all' %} · environment={{ environment_filter }}{% endif %}
+      {% if service_filter != 'all' %} · service={{ service_filter }}{% endif %}
+      {% if created_by_filter != 'all' %} · created_by={{ created_by_filter }}{% endif %}
+      {% if updated_by_filter != 'all' %} · updated_by={{ updated_by_filter }}{% endif %}
+      {% if protected_filter != 'all' %} · protected={{ protected_filter }}{% endif %}
     </small>
     {% endif %}
   </div>
@@ -154,7 +213,7 @@
       {% else %}
         <tr>
           <td colspan="8" class="text-center text-muted py-4">
-            {% if search_query or source_filter != 'all' %}
+            {% if filters_active %}
             No CNAME records matched your filters.
             {% else %}
             No CNAME records found.
@@ -177,19 +236,19 @@
   <nav aria-label="DNS records pagination">
     <ul class="pagination pagination-sm mb-0">
       <li class="page-item {{ 'disabled' if not has_prev else '' }}">
-        <a class="page-link" href="{{ url_for('dns_records', page=prev_page, q=search_query or None, source=source_filter if source_filter != 'all' else None) }}" aria-label="Previous">
+        <a class="page-link" href="{{ url_for('dns_records', page=prev_page, **filter_query) }}" aria-label="Previous">
           <span aria-hidden="true">&laquo;</span>
         </a>
       </li>
 
       {% for page_number in range(1, total_pages + 1) %}
       <li class="page-item {{ 'active' if page_number == page else '' }}">
-        <a class="page-link" href="{{ url_for('dns_records', page=page_number, q=search_query or None, source=source_filter if source_filter != 'all' else None) }}">{{ page_number }}</a>
+        <a class="page-link" href="{{ url_for('dns_records', page=page_number, **filter_query) }}">{{ page_number }}</a>
       </li>
       {% endfor %}
 
       <li class="page-item {{ 'disabled' if not has_next else '' }}">
-        <a class="page-link" href="{{ url_for('dns_records', page=next_page, q=search_query or None, source=source_filter if source_filter != 'all' else None) }}" aria-label="Next">
+        <a class="page-link" href="{{ url_for('dns_records', page=next_page, **filter_query) }}" aria-label="Next">
           <span aria-hidden="true">&raquo;</span>
         </a>
       </li>
@@ -197,7 +256,7 @@
   </nav>
   {% endif %}
 </div>
-{% elif search_query or source_filter != 'all' %}
+{% elif filters_active %}
 <div class="text-muted small mt-2 px-1">No records matched your filters.</div>
 {% endif %}
 

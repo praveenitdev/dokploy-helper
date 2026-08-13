@@ -487,8 +487,17 @@ def dns_records():
     page = max(request.args.get("page", default=1, type=int) or 1, 1)
     search_query = (request.args.get("q") or "").strip()
     source_filter = (request.args.get("source") or "all").strip().lower()
+    project_filter = (request.args.get("project") or "all").strip()
+    environment_filter = (request.args.get("environment") or "all").strip()
+    service_filter = (request.args.get("service") or "all").strip()
+    created_by_filter = (request.args.get("created_by") or "all").strip()
+    updated_by_filter = (request.args.get("updated_by") or "all").strip()
+    protected_filter = (request.args.get("protected") or "all").strip().lower()
+
     if source_filter not in {"all", "dokploy", "manual", "unknown"}:
         source_filter = "all"
+    if protected_filter not in {"all", "yes", "no"}:
+        protected_filter = "all"
 
     page_size = 10
     total_records = 0
@@ -496,6 +505,35 @@ def dns_records():
     start_index = 0
     end_index = 0
     records = []
+    filter_options = {
+        "projects": [],
+        "environments": [],
+        "services": [],
+        "created_by": [],
+        "updated_by": [],
+    }
+    filters_active = any(
+        [
+            bool(search_query),
+            source_filter != "all",
+            project_filter != "all",
+            environment_filter != "all",
+            service_filter != "all",
+            created_by_filter != "all",
+            updated_by_filter != "all",
+            protected_filter != "all",
+        ]
+    )
+    filter_query = {
+        "q": search_query or None,
+        "source": source_filter if source_filter != "all" else None,
+        "project": project_filter if project_filter != "all" else None,
+        "environment": environment_filter if environment_filter != "all" else None,
+        "service": service_filter if service_filter != "all" else None,
+        "created_by": created_by_filter if created_by_filter != "all" else None,
+        "updated_by": updated_by_filter if updated_by_filter != "all" else None,
+        "protected": protected_filter if protected_filter != "all" else None,
+    }
     try:
         records = _route53_service().list_cname_records()
         expected_target = _hosted_zone_name()
@@ -509,6 +547,12 @@ def dns_records():
         search_needle = search_query.lower()
 
         enriched_records = []
+        project_options = set()
+        environment_options = set()
+        service_options = set()
+        created_by_options = set()
+        updated_by_options = set()
+
         for record in records:
             key = record.get("name", "").strip().rstrip(".").lower()
             meta = metadata_map.get(key, {})
@@ -522,30 +566,23 @@ def dns_records():
 
             display_name = _display_record_name(record.get("name", ""))
             created_by = "Dokploy" if source == "dokploy" else (meta.get("created_by") or "-")
-            project_name = str(meta.get("project_name") or "")
-            environment_name = str(meta.get("environment_name") or "")
-            service_name = str(meta.get("service_name") or "")
-            service_app_name = str(meta.get("service_app_name") or "")
+            updated_by = str(meta.get("updated_by") or "-")
+            project_name = str(meta.get("project_name") or "").strip()
+            environment_name = str(meta.get("environment_name") or "").strip()
+            service_name = str(meta.get("service_name") or "").strip()
+            service_app_name = str(meta.get("service_app_name") or "").strip()
+            is_protected = bool(meta.get("protected", False))
 
-            if source_filter != "all" and source != source_filter:
-                continue
-
-            if search_needle:
-                haystack = " ".join(
-                    [
-                        str(record.get("name") or ""),
-                        display_name,
-                        created_by,
-                        str(meta.get("updated_by") or ""),
-                        project_name,
-                        environment_name,
-                        service_name,
-                        service_app_name,
-                        source,
-                    ]
-                ).lower()
-                if search_needle not in haystack:
-                    continue
+            if project_name:
+                project_options.add(project_name)
+            if environment_name:
+                environment_options.add(environment_name)
+            if service_name:
+                service_options.add(service_name)
+            if created_by and created_by != "-":
+                created_by_options.add(created_by)
+            if updated_by and updated_by != "-":
+                updated_by_options.add(updated_by)
 
             created_on_value = meta.get("domain_created_at") if source == "dokploy" else meta.get("created_on")
             if not created_on_value:
@@ -553,7 +590,7 @@ def dns_records():
             created_on_sort = _parse_iso_datetime(created_on_value) or datetime.min.replace(tzinfo=timezone.utc)
 
             record["display_name"] = display_name
-            record["protected"] = bool(meta.get("protected", False))
+            record["protected"] = is_protected
             record["source"] = source
             record["source_label"] = {
                 "dokploy": "Dokploy",
@@ -563,13 +600,63 @@ def dns_records():
             record["created_by"] = created_by
             record["created_on"] = _format_dt(created_on_value)
             record["created_on_sort"] = created_on_sort
-            record["updated_by"] = meta.get("updated_by", "-")
+            record["updated_by"] = updated_by
             record["updated_on"] = _format_dt(meta.get("updated_on"))
+            record["project_name"] = project_name
+            record["environment_name"] = environment_name
+            record["service_name"] = service_name
+            record["service_app_name"] = service_app_name
             record["source_tooltip"] = _dokploy_source_tooltip(meta) if source == "dokploy" else ""
             enriched_records.append(record)
 
+        filter_options = {
+            "projects": sorted(project_options, key=str.lower),
+            "environments": sorted(environment_options, key=str.lower),
+            "services": sorted(service_options, key=str.lower),
+            "created_by": sorted(created_by_options, key=str.lower),
+            "updated_by": sorted(updated_by_options, key=str.lower),
+        }
+
+        filtered_records = []
+        for record in enriched_records:
+            if source_filter != "all" and record.get("source") != source_filter:
+                continue
+            if project_filter != "all" and record.get("project_name") != project_filter:
+                continue
+            if environment_filter != "all" and record.get("environment_name") != environment_filter:
+                continue
+            if service_filter != "all" and record.get("service_name") != service_filter:
+                continue
+            if created_by_filter != "all" and record.get("created_by") != created_by_filter:
+                continue
+            if updated_by_filter != "all" and record.get("updated_by") != updated_by_filter:
+                continue
+            if protected_filter == "yes" and not record.get("protected"):
+                continue
+            if protected_filter == "no" and record.get("protected"):
+                continue
+
+            if search_needle:
+                haystack = " ".join(
+                    [
+                        str(record.get("name") or ""),
+                        str(record.get("display_name") or ""),
+                        str(record.get("created_by") or ""),
+                        str(record.get("updated_by") or ""),
+                        str(record.get("project_name") or ""),
+                        str(record.get("environment_name") or ""),
+                        str(record.get("service_name") or ""),
+                        str(record.get("service_app_name") or ""),
+                        str(record.get("source") or ""),
+                    ]
+                ).lower()
+                if search_needle not in haystack:
+                    continue
+
+            filtered_records.append(record)
+
         records = sorted(
-            enriched_records,
+            filtered_records,
             key=lambda item: item.get("created_on_sort") or datetime.min.replace(tzinfo=timezone.utc),
             reverse=True,
         )
@@ -591,6 +678,29 @@ def dns_records():
     except Exception as exc:  # pylint: disable=broad-except
         flash(f"Unable to fetch Route53 records: {exc}", "danger")
 
+    filters_active = any(
+        [
+            bool(search_query),
+            source_filter != "all",
+            project_filter != "all",
+            environment_filter != "all",
+            service_filter != "all",
+            created_by_filter != "all",
+            updated_by_filter != "all",
+            protected_filter != "all",
+        ]
+    )
+    filter_query = {
+        "q": search_query or None,
+        "source": source_filter if source_filter != "all" else None,
+        "project": project_filter if project_filter != "all" else None,
+        "environment": environment_filter if environment_filter != "all" else None,
+        "service": service_filter if service_filter != "all" else None,
+        "created_by": created_by_filter if created_by_filter != "all" else None,
+        "updated_by": updated_by_filter if updated_by_filter != "all" else None,
+        "protected": protected_filter if protected_filter != "all" else None,
+    }
+
     return render_template(
         "dns.html",
         section="dns",
@@ -609,6 +719,15 @@ def dns_records():
         end_index=end_index,
         search_query=search_query,
         source_filter=source_filter,
+        project_filter=project_filter,
+        environment_filter=environment_filter,
+        service_filter=service_filter,
+        created_by_filter=created_by_filter,
+        updated_by_filter=updated_by_filter,
+        protected_filter=protected_filter,
+        filter_options=filter_options,
+        filters_active=filters_active,
+        filter_query=filter_query,
     )
 
 
