@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from pymongo import MongoClient
 
@@ -131,6 +131,84 @@ class DNSRepository:
             return False
 
         return bool(document.get("protected", False))
+
+    def get_dashboard_metrics(self, days: int = 14) -> dict:
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(days=max(days, 1) - 1)
+        last_7_days = now - timedelta(days=7)
+        last_30_days = now - timedelta(days=30)
+
+        total_records = self.collection.count_documents({})
+        dokploy_count = self.collection.count_documents({"source": "dokploy"})
+        manual_count = self.collection.count_documents({"source": "manual"})
+        protected_count = self.collection.count_documents({"protected": True})
+        unknown_source_count = max(total_records - dokploy_count - manual_count, 0)
+
+        created_last_7_days = self.collection.count_documents(
+            {"created_on": {"$gte": last_7_days}}
+        )
+        created_last_30_days = self.collection.count_documents(
+            {"created_on": {"$gte": last_30_days}}
+        )
+
+        project_rows = list(
+            self.collection.aggregate(
+                [
+                    {"$match": {"source": "dokploy", "project_name": {"$nin": ["", None]}}},
+                    {"$group": {"_id": "$project_name", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1, "_id": 1}},
+                    {"$limit": 8},
+                ]
+            )
+        )
+        top_projects = [
+            {"name": str(row.get("_id") or "Unknown"), "count": int(row.get("count") or 0)}
+            for row in project_rows
+        ]
+
+        created_trend_rows = list(
+            self.collection.aggregate(
+                [
+                    {"$match": {"created_on": {"$gte": window_start}}},
+                    {
+                        "$group": {
+                            "_id": {
+                                "$dateToString": {
+                                    "format": "%Y-%m-%d",
+                                    "date": "$created_on",
+                                    "timezone": "UTC",
+                                }
+                            },
+                            "count": {"$sum": 1},
+                        }
+                    },
+                    {"$sort": {"_id": 1}},
+                ]
+            )
+        )
+        created_by_day = {
+            str(row.get("_id")): int(row.get("count") or 0) for row in created_trend_rows
+        }
+
+        labels = []
+        created_series = []
+        for offset in range(max(days, 1)):
+            day = (window_start + timedelta(days=offset)).date().isoformat()
+            labels.append(day)
+            created_series.append(created_by_day.get(day, 0))
+
+        return {
+            "total_records": total_records,
+            "dokploy_count": dokploy_count,
+            "manual_count": manual_count,
+            "unknown_source_count": unknown_source_count,
+            "protected_count": protected_count,
+            "created_last_7_days": created_last_7_days,
+            "created_last_30_days": created_last_30_days,
+            "top_projects": top_projects,
+            "trend_labels": labels,
+            "created_trend": created_series,
+        }
 
     def log_audit_event(
         self,

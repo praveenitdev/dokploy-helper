@@ -372,7 +372,90 @@ def dashboard():
     if login_redirect:
         return login_redirect
 
-    return render_template("dashboard.html", section="dashboard", user=session.get("user"))
+    dns_metrics = {
+        "total_records": 0,
+        "dokploy_count": 0,
+        "manual_count": 0,
+        "unknown_source_count": 0,
+        "protected_count": 0,
+        "created_last_7_days": 0,
+        "created_last_30_days": 0,
+        "top_projects": [],
+        "trend_labels": [],
+        "created_trend": [],
+    }
+    audit_metrics = {
+        "total_events": 0,
+        "events_last_7_days": 0,
+        "failed_last_7_days": 0,
+        "sync_events_last_7_days": 0,
+        "sync_failed_last_7_days": 0,
+        "trend_labels": [],
+        "success_trend": [],
+        "failed_trend": [],
+        "top_actions": [],
+        "recent_events": [],
+    }
+    route53_total = 0
+
+    try:
+        dns_metrics = _dns_repository().get_dashboard_metrics(days=14)
+    except Exception as exc:  # pylint: disable=broad-except
+        flash(f"Unable to load DNS metrics: {exc}", "danger")
+
+    try:
+        audit_metrics = _audit_repository().get_dashboard_metrics(days=14)
+        for event in audit_metrics.get("recent_events") or []:
+            event["event_on_fmt"] = _format_dt(event.get("event_on"))
+    except Exception as exc:  # pylint: disable=broad-except
+        flash(f"Unable to load audit metrics: {exc}", "danger")
+
+    try:
+        expected_target = _hosted_zone_name()
+        route53_records = _route53_service().list_cname_records()
+        route53_total = sum(
+            1
+            for record in route53_records
+            if record.get("value", "").strip().rstrip(".").lower() == expected_target
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        flash(f"Unable to load Route53 totals: {exc}", "danger")
+        route53_total = int(dns_metrics.get("total_records") or 0)
+
+    chart_payload = {
+        "source": {
+            "labels": ["Dokploy", "Manual", "Unknown"],
+            "values": [
+                int(dns_metrics.get("dokploy_count") or 0),
+                int(dns_metrics.get("manual_count") or 0),
+                int(dns_metrics.get("unknown_source_count") or 0),
+            ],
+        },
+        "createdTrend": {
+            "labels": dns_metrics.get("trend_labels") or [],
+            "values": dns_metrics.get("created_trend") or [],
+        },
+        "activityTrend": {
+            "labels": audit_metrics.get("trend_labels") or [],
+            "success": audit_metrics.get("success_trend") or [],
+            "failed": audit_metrics.get("failed_trend") or [],
+        },
+        "projects": {
+            "labels": [item.get("name") for item in (dns_metrics.get("top_projects") or [])],
+            "values": [item.get("count") for item in (dns_metrics.get("top_projects") or [])],
+        },
+    }
+
+    return render_template(
+        "dashboard.html",
+        section="dashboard",
+        user=session.get("user"),
+        hosted_zone=app_config.HOSTED_ZONE_NAME,
+        route53_total=route53_total,
+        dns_metrics=dns_metrics,
+        audit_metrics=audit_metrics,
+        chart_payload=chart_payload,
+    )
 
 
 @app.route("/profile")
