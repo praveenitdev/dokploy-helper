@@ -550,6 +550,7 @@ def dns_records():
             created_on_value = meta.get("domain_created_at") if source == "dokploy" else meta.get("created_on")
             if not created_on_value:
                 created_on_value = meta.get("created_on")
+            created_on_sort = _parse_iso_datetime(created_on_value) or datetime.min.replace(tzinfo=timezone.utc)
 
             record["display_name"] = display_name
             record["protected"] = bool(meta.get("protected", False))
@@ -561,12 +562,17 @@ def dns_records():
             }.get(source, "Unknown")
             record["created_by"] = created_by
             record["created_on"] = _format_dt(created_on_value)
+            record["created_on_sort"] = created_on_sort
             record["updated_by"] = meta.get("updated_by", "-")
             record["updated_on"] = _format_dt(meta.get("updated_on"))
             record["source_tooltip"] = _dokploy_source_tooltip(meta) if source == "dokploy" else ""
             enriched_records.append(record)
 
-        records = enriched_records
+        records = sorted(
+            enriched_records,
+            key=lambda item: item.get("created_on_sort") or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
         total_records = len(records)
         total_pages = max((total_records + page_size - 1) // page_size, 1)
         page = min(page, total_pages)
