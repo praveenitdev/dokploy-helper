@@ -485,6 +485,11 @@ def dns_records():
         return login_redirect
 
     page = max(request.args.get("page", default=1, type=int) or 1, 1)
+    search_query = (request.args.get("q") or "").strip()
+    source_filter = (request.args.get("source") or "all").strip().lower()
+    if source_filter not in {"all", "dokploy", "manual", "unknown"}:
+        source_filter = "all"
+
     page_size = 10
     total_records = 0
     total_pages = 1
@@ -500,6 +505,68 @@ def dns_records():
             if record.get("value", "").strip().rstrip(".").lower() == expected_target
         ]
 
+        metadata_map = _dns_repository().get_metadata_map([r.get("name", "") for r in records])
+        search_needle = search_query.lower()
+
+        enriched_records = []
+        for record in records:
+            key = record.get("name", "").strip().rstrip(".").lower()
+            meta = metadata_map.get(key, {})
+            source = str(meta.get("source") or "").strip().lower()
+            if source not in {"manual", "dokploy"}:
+                if not meta:
+                    source = "unknown"
+                else:
+                    created_by_hint = str(meta.get("created_by") or "").strip().lower()
+                    source = "dokploy" if created_by_hint in {"dokploy", "system"} else "manual"
+
+            display_name = _display_record_name(record.get("name", ""))
+            created_by = "Dokploy" if source == "dokploy" else (meta.get("created_by") or "-")
+            project_name = str(meta.get("project_name") or "")
+            environment_name = str(meta.get("environment_name") or "")
+            service_name = str(meta.get("service_name") or "")
+            service_app_name = str(meta.get("service_app_name") or "")
+
+            if source_filter != "all" and source != source_filter:
+                continue
+
+            if search_needle:
+                haystack = " ".join(
+                    [
+                        str(record.get("name") or ""),
+                        display_name,
+                        created_by,
+                        str(meta.get("updated_by") or ""),
+                        project_name,
+                        environment_name,
+                        service_name,
+                        service_app_name,
+                        source,
+                    ]
+                ).lower()
+                if search_needle not in haystack:
+                    continue
+
+            created_on_value = meta.get("domain_created_at") if source == "dokploy" else meta.get("created_on")
+            if not created_on_value:
+                created_on_value = meta.get("created_on")
+
+            record["display_name"] = display_name
+            record["protected"] = bool(meta.get("protected", False))
+            record["source"] = source
+            record["source_label"] = {
+                "dokploy": "Dokploy",
+                "manual": "Manual",
+                "unknown": "Unknown",
+            }.get(source, "Unknown")
+            record["created_by"] = created_by
+            record["created_on"] = _format_dt(created_on_value)
+            record["updated_by"] = meta.get("updated_by", "-")
+            record["updated_on"] = _format_dt(meta.get("updated_on"))
+            record["source_tooltip"] = _dokploy_source_tooltip(meta) if source == "dokploy" else ""
+            enriched_records.append(record)
+
+        records = enriched_records
         total_records = len(records)
         total_pages = max((total_records + page_size - 1) // page_size, 1)
         page = min(page, total_pages)
@@ -508,32 +575,8 @@ def dns_records():
         end_index = min(start_index + page_size, total_records)
         page_records = records[start_index:end_index]
 
-        metadata_map = _dns_repository().get_metadata_map([r.get("name", "") for r in page_records])
         for record in page_records:
-            key = record.get("name", "").strip().rstrip(".").lower()
-            meta = metadata_map.get(key, {})
             status = _record_availability_status(record.get("name", ""), expected_target)
-            source = str(meta.get("source") or "").strip().lower()
-            if source not in {"manual", "dokploy"}:
-                created_by_hint = str(meta.get("created_by") or "").strip().lower()
-                source = "dokploy" if created_by_hint in {"dokploy", "system"} else "manual"
-
-            created_on_value = meta.get("domain_created_at") if source == "dokploy" else meta.get("created_on")
-            if not created_on_value:
-                created_on_value = meta.get("created_on")
-
-            record["display_name"] = _display_record_name(record.get("name", ""))
-            record["protected"] = bool(meta.get("protected", False))
-            record["source"] = source if meta else "unknown"
-            record["source_label"] = {
-                "dokploy": "Dokploy",
-                "manual": "Manual",
-            }.get(source if meta else "unknown", "Unknown")
-            record["created_by"] = "Dokploy" if source == "dokploy" else (meta.get("created_by") or "-")
-            record["created_on"] = _format_dt(created_on_value)
-            record["updated_by"] = meta.get("updated_by", "-")
-            record["updated_on"] = _format_dt(meta.get("updated_on"))
-            record["source_tooltip"] = _dokploy_source_tooltip(meta) if source == "dokploy" else ""
             record["status_label"] = status["label"]
             record["status_class"] = status["class"]
             record["status_message"] = status["message"]
@@ -558,6 +601,8 @@ def dns_records():
         next_page=page + 1,
         start_index=(start_index + 1) if total_records > 0 else 0,
         end_index=end_index,
+        search_query=search_query,
+        source_filter=source_filter,
     )
 
 

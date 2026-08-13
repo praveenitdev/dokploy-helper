@@ -22,6 +22,52 @@
   </div>
 </div>
 
+<form class="card panel-card filter-bar mb-3" method="get" action="{{ url_for('dns_records') }}">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6 col-lg-7">
+        <label class="form-label mb-1" for="dnsSearch">Search</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input
+            id="dnsSearch"
+            class="form-control"
+            type="search"
+            name="q"
+            value="{{ search_query }}"
+            placeholder="Name, project, service, created by..."
+            autocomplete="off"
+          >
+        </div>
+      </div>
+      <div class="col-md-3 col-lg-3">
+        <label class="form-label mb-1" for="dnsSource">Source</label>
+        <select id="dnsSource" class="form-select" name="source">
+          <option value="all" {{ 'selected' if source_filter == 'all' else '' }}>All sources</option>
+          <option value="dokploy" {{ 'selected' if source_filter == 'dokploy' else '' }}>Dokploy</option>
+          <option value="manual" {{ 'selected' if source_filter == 'manual' else '' }}>Manual</option>
+          <option value="unknown" {{ 'selected' if source_filter == 'unknown' else '' }}>Unknown</option>
+        </select>
+      </div>
+      <div class="col-md-3 col-lg-2 d-flex gap-2">
+        <button class="btn btn-brand flex-grow-1" type="submit">Filter</button>
+        {% if search_query or source_filter != 'all' %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('dns_records') }}" title="Clear filters">
+          <i class="bi bi-x-lg"></i>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+    {% if search_query or source_filter != 'all' %}
+    <small class="text-muted d-block mt-2">
+      Filtered results
+      {% if search_query %}for “{{ search_query }}”{% endif %}
+      {% if source_filter != 'all' %} · source={{ source_filter }}{% endif %}
+    </small>
+    {% endif %}
+  </div>
+</form>
+
 <div class="card panel-card">
   <div class="table-responsive">
     <table class="table table-modern align-middle mb-0">
@@ -107,7 +153,13 @@
         </tr>
       {% else %}
         <tr>
-          <td colspan="8" class="text-center text-muted py-4">No CNAME records found.</td>
+          <td colspan="8" class="text-center text-muted py-4">
+            {% if search_query or source_filter != 'all' %}
+            No CNAME records matched your filters.
+            {% else %}
+            No CNAME records found.
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
       </tbody>
@@ -125,19 +177,19 @@
   <nav aria-label="DNS records pagination">
     <ul class="pagination pagination-sm mb-0">
       <li class="page-item {{ 'disabled' if not has_prev else '' }}">
-        <a class="page-link" href="{{ url_for('dns_records', page=prev_page) }}" aria-label="Previous">
+        <a class="page-link" href="{{ url_for('dns_records', page=prev_page, q=search_query or None, source=source_filter if source_filter != 'all' else None) }}" aria-label="Previous">
           <span aria-hidden="true">&laquo;</span>
         </a>
       </li>
 
       {% for page_number in range(1, total_pages + 1) %}
       <li class="page-item {{ 'active' if page_number == page else '' }}">
-        <a class="page-link" href="{{ url_for('dns_records', page=page_number) }}">{{ page_number }}</a>
+        <a class="page-link" href="{{ url_for('dns_records', page=page_number, q=search_query or None, source=source_filter if source_filter != 'all' else None) }}">{{ page_number }}</a>
       </li>
       {% endfor %}
 
       <li class="page-item {{ 'disabled' if not has_next else '' }}">
-        <a class="page-link" href="{{ url_for('dns_records', page=next_page) }}" aria-label="Next">
+        <a class="page-link" href="{{ url_for('dns_records', page=next_page, q=search_query or None, source=source_filter if source_filter != 'all' else None) }}" aria-label="Next">
           <span aria-hidden="true">&raquo;</span>
         </a>
       </li>
@@ -145,6 +197,8 @@
   </nav>
   {% endif %}
 </div>
+{% elif search_query or source_filter != 'all' %}
+<div class="text-muted small mt-2 px-1">No records matched your filters.</div>
 {% endif %}
 
 <div class="modal fade" id="createModal" tabindex="-1" aria-hidden="true">
