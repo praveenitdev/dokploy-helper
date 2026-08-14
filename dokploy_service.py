@@ -161,6 +161,41 @@ class DokployService:
     def list_project_service_domains(self) -> list[str]:
         return [entry["host"] for entry in self.list_project_service_domain_details()]
 
+    def _resolve_service_app_name(
+        self,
+        *,
+        service_type: str,
+        service_id: str,
+        inline_app_name: str,
+        inline_service_name: str,
+    ) -> tuple[str, str]:
+        service_app_name = (inline_app_name or "").strip()
+        service_name = (inline_service_name or "").strip()
+        if service_app_name:
+            return service_app_name, service_name
+
+        clean_id = (service_id or "").strip()
+        if not clean_id:
+            return "", service_name
+
+        try:
+            if service_type == "application":
+                detail = self._get("application.one", {"applicationId": clean_id})
+            elif service_type == "compose":
+                detail = self._get("compose.one", {"composeId": clean_id})
+            else:
+                return "", service_name
+        except RuntimeError:
+            return "", service_name
+
+        if not isinstance(detail, dict):
+            return "", service_name
+
+        service_app_name = str(detail.get("appName") or "").strip()
+        if not service_name:
+            service_name = str(detail.get("name") or "").strip()
+        return service_app_name, service_name
+
     def list_project_service_apps(self) -> list[dict[str, str]]:
         projects_payload = self._get("project.all")
         if not isinstance(projects_payload, list):
@@ -189,14 +224,19 @@ class DokployService:
                         if not isinstance(application, dict):
                             continue
 
-                        service_app_name = str(application.get("appName") or "").strip()
+                        service_app_name, service_name = self._resolve_service_app_name(
+                            service_type="application",
+                            service_id=str(application.get("applicationId") or ""),
+                            inline_app_name=str(application.get("appName") or ""),
+                            inline_service_name=str(application.get("name") or ""),
+                        )
                         if not service_app_name:
                             continue
 
                         apps_by_name[service_app_name] = {
                             "project_name": project_name,
                             "environment_name": environment_name,
-                            "service_name": str(application.get("name") or "").strip(),
+                            "service_name": service_name,
                             "service_type": "application",
                             "service_app_name": service_app_name,
                         }
@@ -207,14 +247,19 @@ class DokployService:
                         if not isinstance(compose, dict):
                             continue
 
-                        service_app_name = str(compose.get("appName") or "").strip()
+                        service_app_name, service_name = self._resolve_service_app_name(
+                            service_type="compose",
+                            service_id=str(compose.get("composeId") or ""),
+                            inline_app_name=str(compose.get("appName") or ""),
+                            inline_service_name=str(compose.get("name") or ""),
+                        )
                         if not service_app_name:
                             continue
 
                         apps_by_name[service_app_name] = {
                             "project_name": project_name,
                             "environment_name": environment_name,
-                            "service_name": str(compose.get("name") or "").strip(),
+                            "service_name": service_name,
                             "service_type": "compose",
                             "service_app_name": service_app_name,
                         }

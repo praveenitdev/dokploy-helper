@@ -30,11 +30,47 @@
   ECR auto-create is disabled. Set <code>ECR_AUTO_CREATE_ENABLED=true</code> to sync from Dokploy automatically.
 </div>
 {% endif %}
+{% if aws_error %}
+<div class="alert alert-warning">
+  Live AWS usage partially unavailable: {{ aws_error }}
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="metric-card">
+      <div class="metric-label">Repositories</div>
+      <div class="metric-value">{{ total_count }}</div>
+      <div class="metric-hint">{{ filtered_count }} shown after filters</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-info">
+      <div class="metric-label">Images</div>
+      <div class="metric-value">{{ total_images }}</div>
+      <div class="metric-hint">Across all listed repos</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-success">
+      <div class="metric-label">Total Size</div>
+      <div class="metric-value">{{ total_size_mb }}</div>
+      <div class="metric-hint">MB (sum of image manifests)</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-warning">
+      <div class="metric-label">Prefix</div>
+      <div class="metric-value" style="font-size:1.2rem">{{ repo_prefix }}/</div>
+      <div class="metric-hint">Managed namespace only</div>
+    </div>
+  </div>
+</div>
 
 <form class="card panel-card filter-bar mb-3" method="get" action="{{ url_for('ecr_repositories') }}">
   <div class="card-body py-3">
     <div class="row g-2 align-items-end">
-      <div class="col-lg-5">
+      <div class="col-lg-4">
         <label class="form-label mb-1" for="ecrSearch">Search</label>
         <div class="input-group">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
@@ -56,15 +92,24 @@
           <option value="created" {{ 'selected' if status_filter == 'created' else '' }}>Created</option>
           <option value="exists" {{ 'selected' if status_filter == 'exists' else '' }}>Exists</option>
           <option value="failed" {{ 'selected' if status_filter == 'failed' else '' }}>Failed</option>
+          <option value="missing" {{ 'selected' if status_filter == 'missing' else '' }}>Missing in AWS</option>
         </select>
       </div>
-      <div class="col-6 col-md-4 col-lg-3">
+      <div class="col-6 col-md-4 col-lg-2">
         <label class="form-label mb-1" for="ecrProject">Project</label>
         <select id="ecrProject" class="form-select" name="project">
           <option value="all" {{ 'selected' if project_filter == 'all' else '' }}>All projects</option>
           {% for option in projects %}
           <option value="{{ option }}" {{ 'selected' if project_filter == option else '' }}>{{ option }}</option>
           {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="ecrProtected">Protected</label>
+        <select id="ecrProtected" class="form-select" name="protected">
+          <option value="all" {{ 'selected' if protected_filter == 'all' else '' }}>All</option>
+          <option value="yes" {{ 'selected' if protected_filter == 'yes' else '' }}>Protected</option>
+          <option value="no" {{ 'selected' if protected_filter == 'no' else '' }}>Unprotected</option>
         </select>
       </div>
       <div class="col-12 col-lg-2 d-flex gap-2">
@@ -74,7 +119,6 @@
         </a>
       </div>
     </div>
-    <small class="text-muted d-block mt-2">Showing {{ filtered_count }} of {{ total_count }} tracked repositories</small>
   </div>
 </form>
 
@@ -84,11 +128,12 @@
       <thead>
         <tr>
           <th>Repository</th>
-          <th>App Name</th>
-          <th>Project</th>
-          <th>Type</th>
+          <th>Project / App</th>
+          <th>Images</th>
+          <th>Size</th>
+          <th>Last Push</th>
           <th>Status</th>
-          <th>Updated</th>
+          <th class="text-end">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -97,34 +142,76 @@
           <tr>
             <td>
               <div class="fw-semibold">{{ item.repository_name }}</div>
-              <small class="text-muted">{{ item.repository_uri }}</small>
+              <small class="text-muted d-block text-truncate" style="max-width:320px" title="{{ item.repository_uri }}">{{ item.repository_uri }}</small>
+              <small class="text-muted">
+                {% if item.scan_on_push %}scan-on-push{% else %}scan off{% endif %}
+                {% if item.encryption_type %} · {{ item.encryption_type }}{% endif %}
+                {% if item.image_tag_mutability %} · {{ item.image_tag_mutability }}{% endif %}
+              </small>
             </td>
-            <td>{{ item.service_app_name or '-' }}</td>
             <td>
               <div>{{ item.project_name or '-' }}</div>
-              <small class="text-muted">{{ item.environment_name or '' }}</small>
+              <small class="text-muted">{{ item.service_app_name or '-' }}</small>
+              {% if item.environment_name %}<div class="small text-muted">{{ item.environment_name }}</div>{% endif %}
             </td>
-            <td>{{ item.service_type or '-' }}</td>
+            <td>
+              <div class="fw-semibold">{{ item.image_count }}</div>
+              <small class="text-muted">
+                {{ item.tagged_image_count }} tagged
+                · {{ item.untagged_image_count }} untagged
+                · {{ item.tag_count }} tags
+              </small>
+            </td>
+            <td>
+              <div class="fw-semibold">{{ item.size_mb }} MB</div>
+            </td>
+            <td>
+              <small>{{ item.last_pushed_at or '-' }}</small>
+              {% if item.aws_created_at %}<div class="small text-muted">created {{ item.aws_created_at }}</div>{% endif %}
+            </td>
             <td>
               {% if item.status == 'created' %}
               <span class="badge text-bg-success">created</span>
               {% elif item.status == 'failed' %}
               <span class="badge text-bg-danger">failed</span>
+              {% elif item.status == 'missing' or not item.aws_exists %}
+              <span class="badge text-bg-warning">missing</span>
               {% else %}
               <span class="badge text-bg-secondary">{{ item.status or 'exists' }}</span>
               {% endif %}
               {% if item.protected %}<span class="badge text-bg-warning ms-1">protected</span>{% endif %}
+              {% if item.source %}<div class="small text-muted mt-1">source: {{ item.source }}</div>{% endif %}
               {% if item.last_error %}<div class="small text-danger mt-1">{{ item.last_error }}</div>{% endif %}
             </td>
-            <td>
-              <div class="small">{{ item.updated_by or '-' }}</div>
-              <small class="text-muted">{{ item.updated_on }}</small>
+            <td class="text-end text-nowrap">
+              <form method="post" action="{{ url_for('ecr_protect') }}" class="d-inline">
+                <input type="hidden" name="repository_name" value="{{ item.repository_name }}">
+                <input type="hidden" name="protected" value="{{ 'false' if item.protected else 'true' }}">
+                <button class="btn btn-sm btn-outline-secondary" type="submit" title="{{ 'Unprotect' if item.protected else 'Protect' }}">
+                  <i class="bi {{ 'bi-shield-lock-fill' if item.protected else 'bi-shield' }}"></i>
+                </button>
+              </form>
+              {% if not item.protected %}
+              <button
+                class="btn btn-sm btn-outline-danger"
+                type="button"
+                data-bs-toggle="modal"
+                data-bs-target="#deleteModal"
+                data-repo="{{ item.repository_name }}"
+                data-images="{{ item.image_count }}"
+                data-size="{{ item.size_mb }}"
+                data-aws-exists="{{ 'true' if item.aws_exists else 'false' }}"
+                title="{{ 'Delete repository' if item.aws_exists else 'Remove missing record' }}"
+              >
+                <i class="bi bi-trash"></i>
+              </button>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="6" class="text-center text-muted py-4">No ECR repositories tracked yet. Run Sync Dokploy Apps.</td>
+            <td colspan="7" class="text-center text-muted py-4">No ECR repositories found. Run Sync Dokploy Apps or Ensure Repo.</td>
           </tr>
         {% endif %}
       </tbody>
@@ -157,4 +244,54 @@
     </form>
   </div>
 </div>
+
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form class="modal-content" method="post" action="{{ url_for('ecr_delete') }}" data-loading="true">
+      <div class="modal-header">
+        <h5 class="modal-title">Delete ECR repository</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2" id="deleteRepoWarning">This permanently deletes the repository and all images.</p>
+        <p class="fw-semibold mb-1" id="deleteRepoName">-</p>
+        <p class="text-muted small mb-3" id="deleteRepoMeta">-</p>
+        <input type="hidden" name="repository_name" id="deleteRepoInput">
+        <input type="hidden" name="force" value="true">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="deleteConfirmCheck" required>
+          <label class="form-check-label" for="deleteConfirmCheck">I understand this cannot be undone</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-danger" data-loading-text="Deleting">Delete</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const deleteModal = document.getElementById('deleteModal');
+  if (deleteModal) {
+    deleteModal.addEventListener('show.bs.modal', (event) => {
+      const button = event.relatedTarget;
+      const repo = button.getAttribute('data-repo') || '';
+      const images = button.getAttribute('data-images') || '0';
+      const size = button.getAttribute('data-size') || '0';
+      const awsExists = button.getAttribute('data-aws-exists') !== 'false';
+      document.getElementById('deleteRepoName').textContent = repo;
+      document.getElementById('deleteRepoMeta').textContent = awsExists
+        ? `${images} images · ${size} MB`
+        : 'Repository missing in AWS — removes local tracking only';
+      document.getElementById('deleteRepoWarning').textContent = awsExists
+        ? 'This permanently deletes the repository and all images.'
+        : 'This removes the missing repository from dokploy-helper tracking.';
+      document.getElementById('deleteRepoInput').value = repo;
+      document.getElementById('deleteConfirmCheck').checked = false;
+    });
+  }
+</script>
 {% endblock %}

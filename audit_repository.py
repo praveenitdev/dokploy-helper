@@ -54,13 +54,42 @@ class AuditRepository:
         sync_events_last_7_days = self.collection.count_documents(
             {
                 "event_on": {"$gte": last_7_days},
-                "action": {"$in": ["SYNC_DOKPLOY", "SYNC_DOKPLOY_AUTO"]},
+                "action": {
+                    "$in": [
+                        "SYNC_DOKPLOY",
+                        "SYNC_DOKPLOY_AUTO",
+                        "ENSURE_ECR",
+                        "ENSURE_ECR_AUTO",
+                        "ECR_CREATE_MANUAL",
+                    ]
+                },
             }
         )
         sync_failed_last_7_days = self.collection.count_documents(
             {
                 "event_on": {"$gte": last_7_days},
-                "action": {"$in": ["SYNC_DOKPLOY", "SYNC_DOKPLOY_AUTO"]},
+                "action": {
+                    "$in": [
+                        "SYNC_DOKPLOY",
+                        "SYNC_DOKPLOY_AUTO",
+                        "ENSURE_ECR",
+                        "ENSURE_ECR_AUTO",
+                        "ECR_CREATE_MANUAL",
+                    ]
+                },
+                "status": "FAILED",
+            }
+        )
+        ecr_events_last_7_days = self.collection.count_documents(
+            {
+                "event_on": {"$gte": last_7_days},
+                "action": {"$in": ["ENSURE_ECR", "ENSURE_ECR_AUTO", "ECR_CREATE_MANUAL"]},
+            }
+        )
+        ecr_failed_last_7_days = self.collection.count_documents(
+            {
+                "event_on": {"$gte": last_7_days},
+                "action": {"$in": ["ENSURE_ECR", "ENSURE_ECR_AUTO", "ECR_CREATE_MANUAL"]},
                 "status": "FAILED",
             }
         )
@@ -134,6 +163,8 @@ class AuditRepository:
             "failed_last_7_days": failed_last_7_days,
             "sync_events_last_7_days": sync_events_last_7_days,
             "sync_failed_last_7_days": sync_failed_last_7_days,
+            "ecr_events_last_7_days": ecr_events_last_7_days,
+            "ecr_failed_last_7_days": ecr_failed_last_7_days,
             "trend_labels": labels,
             "success_trend": success_series,
             "failed_trend": failed_series,

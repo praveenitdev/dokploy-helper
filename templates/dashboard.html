@@ -4,12 +4,20 @@
 <div class="hero-card">
   <div>
     <p class="eyebrow">Overview</p>
-    <h2>DNS & platform metrics</h2>
-    <p class="text-muted mb-0">Hosted zone <strong>{{ hosted_zone }}</strong> · last 14 days trends</p>
+    <h2>DNS, ECR & platform metrics</h2>
+    <p class="text-muted mb-0">
+      Hosted zone <strong>{{ hosted_zone }}</strong>
+      · ECR prefix <strong>{{ ecr_repo_prefix }}/</strong>
+      · last 14 days trends
+      · ECR auto-create {{ 'on' if ecr_enabled else 'off' }}
+    </p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <a href="{{ url_for('dns_records') }}" class="btn btn-brand btn-sm">
       <i class="bi bi-globe2 me-1"></i>Manage DNS
+    </a>
+    <a href="{{ url_for('ecr_repositories') }}" class="btn btn-brand btn-sm">
+      <i class="bi bi-box-seam me-1"></i>Manage ECR
     </a>
     <a href="{{ url_for('audit_page') }}" class="btn btn-refresh btn-sm">
       <i class="bi bi-clipboard-data me-1"></i>Audit
@@ -34,16 +42,47 @@
   </div>
   <div class="col-6 col-lg-3">
     <div class="metric-card">
-      <div class="metric-label"><i class="bi bi-plus-circle me-1"></i>New (7d / 30d)</div>
+      <div class="metric-label"><i class="bi bi-plus-circle me-1"></i>New Domains (7d / 30d)</div>
       <div class="metric-value">{{ dns_metrics.created_last_7_days }} <span class="metric-split">/ {{ dns_metrics.created_last_30_days }}</span></div>
       <div class="metric-hint">Domains created in helper DB</div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
     <div class="metric-card">
-      <div class="metric-label"><i class="bi bi-shield-lock me-1"></i>Protected</div>
+      <div class="metric-label"><i class="bi bi-shield-lock me-1"></i>Protected Domains</div>
       <div class="metric-value">{{ dns_metrics.protected_count }}</div>
       <div class="metric-hint">Skipped by Dokploy sync</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-info">
+      <div class="metric-label"><i class="bi bi-boxes me-1"></i>ECR Repos</div>
+      <div class="metric-value">{{ ecr_metrics.total_records }}</div>
+      <div class="metric-hint">{{ ecr_metrics.dokploy_count }} dokploy · {{ ecr_metrics.manual_count }} manual</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-success">
+      <div class="metric-label"><i class="bi bi-plus-square me-1"></i>ECR Created</div>
+      <div class="metric-value">{{ ecr_metrics.created_count }}</div>
+      <div class="metric-hint">{{ ecr_metrics.exists_count }} already existed</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card">
+      <div class="metric-label"><i class="bi bi-calendar-plus me-1"></i>New ECR (7d / 30d)</div>
+      <div class="metric-value">{{ ecr_metrics.created_last_7_days }} <span class="metric-split">/ {{ ecr_metrics.created_last_30_days }}</span></div>
+      <div class="metric-hint">Repos tracked in helper DB</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="metric-card tone-danger">
+      <div class="metric-label"><i class="bi bi-exclamation-octagon me-1"></i>ECR Failed</div>
+      <div class="metric-value">{{ ecr_metrics.failed_count }}</div>
+      <div class="metric-hint">{{ ecr_metrics.failed_last_7_days }} updated failed in 7d · {{ ecr_metrics.protected_count }} protected</div>
     </div>
   </div>
 </div>
@@ -67,14 +106,14 @@
     <div class="metric-card tone-success">
       <div class="metric-label"><i class="bi bi-arrow-repeat me-1"></i>Sync Runs (7d)</div>
       <div class="metric-value">{{ audit_metrics.sync_events_last_7_days }}</div>
-      <div class="metric-hint">Auto + manual Dokploy sync</div>
+      <div class="metric-hint">DNS + ECR sync actions</div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
     <div class="metric-card tone-warning">
-      <div class="metric-label"><i class="bi bi-x-octagon me-1"></i>Sync Failures (7d)</div>
-      <div class="metric-value">{{ audit_metrics.sync_failed_last_7_days }}</div>
-      <div class="metric-hint">Needs attention if rising</div>
+      <div class="metric-label"><i class="bi bi-box-arrow-in-down me-1"></i>ECR Sync (7d)</div>
+      <div class="metric-value">{{ audit_metrics.ecr_events_last_7_days }}</div>
+      <div class="metric-hint">{{ audit_metrics.ecr_failed_last_7_days }} failed</div>
     </div>
   </div>
 </div>
@@ -109,6 +148,35 @@
 </div>
 
 <div class="row g-3 mt-1">
+  <div class="col-lg-4">
+    <div class="card panel-card chart-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">ECR Status</h6>
+          <span class="text-muted small">Tracked repos</span>
+        </div>
+        <div class="chart-wrap chart-wrap-sm">
+          <canvas id="ecrStatusChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card panel-card chart-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">ECR Repos Tracked</h6>
+          <span class="text-muted small">Last 14 days</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="ecrCreatedTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
   <div class="col-lg-7">
     <div class="card panel-card chart-card h-100">
       <div class="card-body">
@@ -126,7 +194,26 @@
     <div class="card panel-card chart-card h-100">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-2">
-          <h6 class="mb-0">Top Projects</h6>
+          <h6 class="mb-0">Top ECR Projects</h6>
+          <span class="text-muted small">By tracked repos</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="ecrProjectsChart"></canvas>
+        </div>
+        {% if not ecr_metrics.top_projects %}
+        <p class="text-muted small mb-0 mt-2">No ECR project metadata yet. Run an ECR sync to populate.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-7">
+    <div class="card panel-card chart-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Top DNS Projects</h6>
           <span class="text-muted small">By Dokploy domains</span>
         </div>
         <div class="chart-wrap">
@@ -138,9 +225,6 @@
       </div>
     </div>
   </div>
-</div>
-
-<div class="row g-3 mt-1">
   <div class="col-lg-5">
     <div class="card panel-card h-100">
       <div class="card-body">
@@ -160,7 +244,10 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-7">
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-12">
     <div class="card panel-card h-100">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -172,6 +259,7 @@
             <thead>
               <tr>
                 <th>When</th>
+                <th>Module</th>
                 <th>Action</th>
                 <th>Status</th>
                 <th>Entity</th>
@@ -181,6 +269,7 @@
               {% for event in audit_metrics.recent_events %}
               <tr>
                 <td class="text-nowrap">{{ event.event_on_fmt or '-' }}</td>
+                <td>{{ event.module or '-' }}</td>
                 <td>{{ event.action or '-' }}</td>
                 <td>
                   <span class="badge badge-status {{ 'success' if event.status == 'SUCCESS' else 'danger' if event.status == 'FAILED' else 'neutral' }}">
@@ -191,7 +280,7 @@
               </tr>
               {% else %}
               <tr>
-                <td colspan="4" class="text-center text-muted py-3">No recent events.</td>
+                <td colspan="5" class="text-center text-muted py-3">No recent events.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -211,6 +300,7 @@
   const brand2 = '#16a085';
   const danger = '#b4233f';
   const muted = '#8aa0b2';
+  const warning = '#c47f17';
 
   function shortDayLabel(isoDay) {
     if (!isoDay || isoDay.length < 10) return isoDay;
@@ -227,28 +317,43 @@
     },
   };
 
-  const sourceValues = chartPayload.source.values || [];
-  const hasSourceData = sourceValues.some((value) => Number(value) > 0);
-  new Chart(document.getElementById('sourceChart'), {
-    type: 'doughnut',
-    data: {
-      labels: chartPayload.source.labels,
-      datasets: [{
-        data: hasSourceData ? sourceValues : [1],
-        backgroundColor: hasSourceData ? [brand2, brand, muted] : ['#e5eef3'],
-        borderWidth: 0,
-      }],
-    },
-    options: {
-      ...commonOptions,
-      cutout: '62%',
-      plugins: {
-        ...commonOptions.plugins,
-        tooltip: { enabled: hasSourceData },
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+  function doughnutChart(canvasId, labels, values, colors) {
+    const hasData = (values || []).some((value) => Number(value) > 0);
+    new Chart(document.getElementById(canvasId), {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: hasData ? values : [1],
+          backgroundColor: hasData ? colors : ['#e5eef3'],
+          borderWidth: 0,
+        }],
       },
-    },
-  });
+      options: {
+        ...commonOptions,
+        cutout: '62%',
+        plugins: {
+          ...commonOptions.plugins,
+          tooltip: { enabled: hasData },
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        },
+      },
+    });
+  }
+
+  doughnutChart(
+    'sourceChart',
+    chartPayload.source.labels,
+    chartPayload.source.values || [],
+    [brand2, brand, muted]
+  );
+
+  doughnutChart(
+    'ecrStatusChart',
+    chartPayload.ecrStatus.labels,
+    chartPayload.ecrStatus.values || [],
+    [brand, brand2, danger]
+  );
 
   new Chart(document.getElementById('createdTrendChart'), {
     type: 'line',
@@ -259,6 +364,30 @@
         data: chartPayload.createdTrend.values || [],
         borderColor: brand,
         backgroundColor: 'rgba(12, 123, 147, 0.12)',
+        fill: true,
+        tension: 0.35,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+      }],
+    },
+    options: {
+      ...commonOptions,
+      scales: {
+        x: { ticks: { font: { size: 10 }, maxRotation: 0 } },
+        y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById('ecrCreatedTrendChart'), {
+    type: 'line',
+    data: {
+      labels: (chartPayload.ecrCreatedTrend.labels || []).map(shortDayLabel),
+      datasets: [{
+        label: 'ECR repos tracked',
+        data: chartPayload.ecrCreatedTrend.values || [],
+        borderColor: brand2,
+        backgroundColor: 'rgba(22, 160, 133, 0.12)',
         fill: true,
         tension: 0.35,
         pointRadius: 2,
@@ -302,31 +431,47 @@
     },
   });
 
-  const projectLabels = chartPayload.projects.labels || [];
-  const projectValues = chartPayload.projects.values || [];
-  new Chart(document.getElementById('projectsChart'), {
-    type: 'bar',
-    data: {
-      labels: projectLabels.length ? projectLabels : ['No data'],
-      datasets: [{
-        label: 'Domains',
-        data: projectLabels.length ? projectValues : [0],
-        backgroundColor: brand,
-        borderRadius: 4,
-      }],
-    },
-    options: {
-      ...commonOptions,
-      indexAxis: 'y',
-      plugins: {
-        ...commonOptions.plugins,
-        legend: { display: false },
+  function horizontalBarChart(canvasId, labels, values, label, color) {
+    new Chart(document.getElementById(canvasId), {
+      type: 'bar',
+      data: {
+        labels: labels.length ? labels : ['No data'],
+        datasets: [{
+          label,
+          data: labels.length ? values : [0],
+          backgroundColor: color,
+          borderRadius: 4,
+        }],
       },
-      scales: {
-        x: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
-        y: { ticks: { font: { size: 10 } } },
+      options: {
+        ...commonOptions,
+        indexAxis: 'y',
+        plugins: {
+          ...commonOptions.plugins,
+          legend: { display: false },
+        },
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+          y: { ticks: { font: { size: 10 } } },
+        },
       },
-    },
-  });
+    });
+  }
+
+  horizontalBarChart(
+    'projectsChart',
+    chartPayload.projects.labels || [],
+    chartPayload.projects.values || [],
+    'Domains',
+    brand
+  );
+
+  horizontalBarChart(
+    'ecrProjectsChart',
+    chartPayload.ecrProjects.labels || [],
+    chartPayload.ecrProjects.values || [],
+    'Repos',
+    brand2
+  );
 </script>
 {% endblock %}

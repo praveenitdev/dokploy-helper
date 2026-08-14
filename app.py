@@ -413,12 +413,29 @@ def dashboard():
         "trend_labels": [],
         "created_trend": [],
     }
+    ecr_metrics = {
+        "total_records": 0,
+        "created_count": 0,
+        "exists_count": 0,
+        "failed_count": 0,
+        "protected_count": 0,
+        "dokploy_count": 0,
+        "manual_count": 0,
+        "created_last_7_days": 0,
+        "created_last_30_days": 0,
+        "failed_last_7_days": 0,
+        "top_projects": [],
+        "trend_labels": [],
+        "created_trend": [],
+    }
     audit_metrics = {
         "total_events": 0,
         "events_last_7_days": 0,
         "failed_last_7_days": 0,
         "sync_events_last_7_days": 0,
         "sync_failed_last_7_days": 0,
+        "ecr_events_last_7_days": 0,
+        "ecr_failed_last_7_days": 0,
         "trend_labels": [],
         "success_trend": [],
         "failed_trend": [],
@@ -431,6 +448,11 @@ def dashboard():
         dns_metrics = _dns_repository().get_dashboard_metrics(days=14)
     except Exception as exc:  # pylint: disable=broad-except
         flash(f"Unable to load DNS metrics: {exc}", "danger")
+
+    try:
+        ecr_metrics = _ecr_repository().get_dashboard_metrics(days=14)
+    except Exception as exc:  # pylint: disable=broad-except
+        flash(f"Unable to load ECR metrics: {exc}", "danger")
 
     try:
         audit_metrics = _audit_repository().get_dashboard_metrics(days=14)
@@ -464,6 +486,22 @@ def dashboard():
             "labels": dns_metrics.get("trend_labels") or [],
             "values": dns_metrics.get("created_trend") or [],
         },
+        "ecrStatus": {
+            "labels": ["Exists", "Created", "Failed"],
+            "values": [
+                int(ecr_metrics.get("exists_count") or 0),
+                int(ecr_metrics.get("created_count") or 0),
+                int(ecr_metrics.get("failed_count") or 0),
+            ],
+        },
+        "ecrCreatedTrend": {
+            "labels": ecr_metrics.get("trend_labels") or [],
+            "values": ecr_metrics.get("created_trend") or [],
+        },
+        "ecrProjects": {
+            "labels": [item.get("name") for item in (ecr_metrics.get("top_projects") or [])],
+            "values": [item.get("count") for item in (ecr_metrics.get("top_projects") or [])],
+        },
         "activityTrend": {
             "labels": audit_metrics.get("trend_labels") or [],
             "success": audit_metrics.get("success_trend") or [],
@@ -482,7 +520,10 @@ def dashboard():
         hosted_zone=app_config.HOSTED_ZONE_NAME,
         route53_total=route53_total,
         dns_metrics=dns_metrics,
+        ecr_metrics=ecr_metrics,
         audit_metrics=audit_metrics,
+        ecr_enabled=app_config.ECR_AUTO_CREATE_ENABLED,
+        ecr_repo_prefix=app_config.ECR_REPO_PREFIX,
         chart_payload=chart_payload,
     )
 
@@ -968,10 +1009,75 @@ def ecr_repositories():
         return login_redirect
 
     ecr = _ecr_service()
-    records = _ecr_repository().list_records()
+    mongo_records = _ecr_repository().list_records()
+    mongo_by_name = {
+        str(item.get("repository_name") or "").strip(): item for item in mongo_records
+    }
+
+    aws_rows: list[dict[str, Any]] = []
+    aws_error = ""
+    try:
+        aws_rows = ecr.get_repositories_with_usage()
+    except Exception as exc:  # pylint: disable=broad-except
+        aws_error = str(exc)
+        flash(f"Unable to load live ECR usage from AWS: {exc}", "warning")
+
+    aws_by_name = {
+        str(item.get("repository_name") or "").strip(): item for item in aws_rows
+    }
+
+    merged_names = sorted(set(mongo_by_name.keys()) | set(aws_by_name.keys()))
+    records: list[dict[str, Any]] = []
+    for repository_name in merged_names:
+        if not repository_name:
+            continue
+        meta = mongo_by_name.get(repository_name) or {}
+        live = aws_by_name.get(repository_name) or {}
+        app_name = ""
+        if repository_name.startswith(f"{ecr.repo_prefix}/"):
+            app_name = repository_name.split("/", 1)[1]
+
+        aws_exists = bool(live.get("exists", bool(live)))
+        status = str(meta.get("status") or ("exists" if aws_exists else "missing"))
+        if not aws_exists and status != "failed":
+            status = "missing"
+
+        records.append(
+            {
+                "repository_name": repository_name,
+                "repository_uri": live.get("repository_uri")
+                or meta.get("repository_uri")
+                or ecr.repository_uri(repository_name),
+                "service_app_name": meta.get("service_app_name") or app_name,
+                "project_name": meta.get("project_name") or "",
+                "environment_name": meta.get("environment_name") or "",
+                "service_name": meta.get("service_name") or "",
+                "service_type": meta.get("service_type") or "",
+                "source": meta.get("source") or ("aws" if aws_exists else "unknown"),
+                "status": status,
+                "protected": bool(meta.get("protected")),
+                "last_error": meta.get("last_error") or "",
+                "updated_by": meta.get("updated_by") or "",
+                "updated_on": meta.get("updated_on"),
+                "created_on": meta.get("created_on"),
+                "aws_exists": aws_exists,
+                "image_count": int(live.get("image_count") or 0),
+                "tagged_image_count": int(live.get("tagged_image_count") or 0),
+                "untagged_image_count": int(live.get("untagged_image_count") or 0),
+                "tag_count": int(live.get("tag_count") or 0),
+                "size_mb": float(live.get("size_mb") or 0),
+                "last_pushed_at": live.get("last_pushed_at") or "",
+                "scan_on_push": bool(live.get("scan_on_push")),
+                "encryption_type": live.get("encryption_type") or "",
+                "image_tag_mutability": live.get("image_tag_mutability") or "",
+                "aws_created_at": live.get("created_at") or "",
+            }
+        )
+
     search_query = (request.args.get("q") or "").strip().lower()
     status_filter = (request.args.get("status") or "all").strip().lower()
     project_filter = (request.args.get("project") or "all").strip()
+    protected_filter = (request.args.get("protected") or "all").strip().lower()
 
     projects = sorted(
         {
@@ -987,6 +1093,10 @@ def ecr_repositories():
             continue
         if project_filter != "all" and str(item.get("project_name") or "") != project_filter:
             continue
+        if protected_filter == "yes" and not item.get("protected"):
+            continue
+        if protected_filter == "no" and item.get("protected"):
+            continue
         if search_query:
             haystack = " ".join(
                 [
@@ -1001,6 +1111,9 @@ def ecr_repositories():
                 continue
         filtered.append(item)
 
+    total_images = sum(int(item.get("image_count") or 0) for item in records)
+    total_size_mb = round(sum(float(item.get("size_mb") or 0) for item in records), 2)
+
     return render_template(
         "ecr.html",
         section="ecr",
@@ -1008,14 +1121,18 @@ def ecr_repositories():
         records=filtered,
         total_count=len(records),
         filtered_count=len(filtered),
+        total_images=total_images,
+        total_size_mb=total_size_mb,
         search_query=request.args.get("q") or "",
         status_filter=status_filter,
         project_filter=project_filter,
+        protected_filter=protected_filter,
         projects=projects,
         ecr_enabled=app_config.ECR_AUTO_CREATE_ENABLED,
         registry_host=ecr.registry_host(),
         repo_prefix=ecr.repo_prefix,
         aws_region=app_config.AWS_REGION,
+        aws_error=aws_error,
     )
 
 
@@ -1039,7 +1156,8 @@ def ecr_sync_dokploy():
         )
         flash(
             (
-                f"ECR sync complete. Created: {stats['created']}, existed: {stats['existed']}, "
+                f"ECR sync complete. Discovered: {stats.get('discovered', 0)}, "
+                f"created: {stats['created']}, existed: {stats['existed']}, "
                 f"skipped: {stats['skipped']}, protected skipped: {stats['protected_skipped']}, "
                 f"failed: {stats['failed']}."
             ),
@@ -1102,6 +1220,92 @@ def ecr_ensure_one():
             actor_email=actor_email,
         )
         flash(f"Failed to ensure ECR repository: {exc}", "danger")
+
+    return redirect(url_for("ecr_repositories"))
+
+
+@app.route("/ecr/delete", methods=["POST"])
+def ecr_delete():
+    login_redirect = _require_login()
+    if login_redirect:
+        return login_redirect
+
+    actor_email = session.get("user", {}).get("preferred_username") or session.get("user", {}).get("name") or "System"
+    repository_name = (request.form.get("repository_name") or "").strip()
+    force = (request.form.get("force") or "true").lower() in {"1", "true", "yes", "on"}
+
+    try:
+        if not repository_name:
+            raise ValueError("repository_name is required")
+        if _ecr_repository().is_record_protected(repository_name):
+            raise PermissionError("This repository is protected and cannot be deleted")
+
+        usage = _ecr_service().get_repository_usage(repository_name)
+        if usage.get("exists"):
+            _ecr_service().delete_repository(repository_name, force=force)
+        _ecr_repository().delete_record(repository_name)
+        _log_audit(
+            module="ecr",
+            action="ECR_DELETE",
+            status="SUCCESS",
+            entity_name=repository_name,
+            details=(
+                f"force={force}; aws_deleted={bool(usage.get('exists'))}; "
+                f"images={usage.get('image_count', 0)}; size_mb={usage.get('size_mb', 0)}"
+            ),
+            actor_email=actor_email,
+        )
+        flash(f"Deleted ECR repository {repository_name}.", "success")
+    except Exception as exc:  # pylint: disable=broad-except
+        _log_audit(
+            module="ecr",
+            action="ECR_DELETE",
+            status="FAILED",
+            entity_name=repository_name or "unknown",
+            details=str(exc),
+            actor_email=actor_email,
+        )
+        flash(f"Failed to delete ECR repository: {exc}", "danger")
+
+    return redirect(url_for("ecr_repositories"))
+
+
+@app.route("/ecr/protect", methods=["POST"])
+def ecr_protect():
+    login_redirect = _require_login()
+    if login_redirect:
+        return login_redirect
+
+    actor_email = session.get("user", {}).get("preferred_username") or session.get("user", {}).get("name") or "System"
+    repository_name = (request.form.get("repository_name") or "").strip()
+    protected = (request.form.get("protected") or "").lower() in {"1", "true", "yes", "on"}
+
+    try:
+        if not repository_name:
+            raise ValueError("repository_name is required")
+        _ecr_repository().set_protected(repository_name, protected)
+        _log_audit(
+            module="ecr",
+            action="ECR_PROTECT" if protected else "ECR_UNPROTECT",
+            status="SUCCESS",
+            entity_name=repository_name,
+            details=f"protected={protected}",
+            actor_email=actor_email,
+        )
+        flash(
+            f"Repository {repository_name} is now {'protected' if protected else 'unprotected'}.",
+            "success",
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        _log_audit(
+            module="ecr",
+            action="ECR_PROTECT",
+            status="FAILED",
+            entity_name=repository_name or "unknown",
+            details=str(exc),
+            actor_email=actor_email,
+        )
+        flash(f"Failed to update protection: {exc}", "danger")
 
     return redirect(url_for("ecr_repositories"))
 

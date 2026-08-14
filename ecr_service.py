@@ -164,8 +164,8 @@ class EcrService:
 
         return {"status": "created", "repository_name": clean_name, "repository_uri": uri}
 
-    def list_prefixed_repositories(self) -> list[dict[str, str]]:
-        repositories: list[dict[str, str]] = []
+    def list_prefixed_repositories(self) -> list[dict[str, Any]]:
+        repositories: list[dict[str, Any]] = []
         paginator = self.client.get_paginator("describe_repositories")
         prefix = f"{self.repo_prefix}/"
         for page in paginator.paginate():
@@ -173,11 +173,108 @@ class EcrService:
                 name = str(repository.get("repositoryName") or "")
                 if name != self.repo_prefix and not name.startswith(prefix):
                     continue
-                repositories.append(
-                    {
-                        "repository_name": name,
-                        "repository_uri": str(repository.get("repositoryUri") or ""),
-                    }
-                )
+                repositories.append(self._repository_summary(repository))
         repositories.sort(key=lambda item: item["repository_name"])
         return repositories
+
+    def _repository_summary(self, repository: dict[str, Any]) -> dict[str, Any]:
+        name = str(repository.get("repositoryName") or "")
+        created_at = repository.get("createdAt")
+        scan_config = repository.get("imageScanningConfiguration") or {}
+        encryption = repository.get("encryptionConfiguration") or {}
+        return {
+            "repository_name": name,
+            "repository_uri": str(repository.get("repositoryUri") or self.repository_uri(name)),
+            "registry_id": str(repository.get("registryId") or self.registry_id),
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at or ""),
+            "scan_on_push": bool(scan_config.get("scanOnPush")),
+            "encryption_type": str(encryption.get("encryptionType") or ""),
+            "image_tag_mutability": str(repository.get("imageTagMutability") or ""),
+        }
+
+    def get_repository_usage(self, repository_name: str) -> dict[str, Any]:
+        clean_name = (repository_name or "").strip().strip("/")
+        image_count = 0
+        tagged_image_count = 0
+        untagged_image_count = 0
+        tag_count = 0
+        size_bytes = 0
+        last_pushed_at = None
+
+        paginator = self.client.get_paginator("describe_images")
+        try:
+            for page in paginator.paginate(repositoryName=clean_name):
+                for detail in page.get("imageDetails", []):
+                    image_count += 1
+                    size_bytes += int(detail.get("imageSizeInBytes") or 0)
+                    tags = detail.get("imageTags") or []
+                    if tags:
+                        tagged_image_count += 1
+                        tag_count += len(tags)
+                    else:
+                        untagged_image_count += 1
+                    pushed = detail.get("imagePushedAt")
+                    if pushed is not None and (last_pushed_at is None or pushed > last_pushed_at):
+                        last_pushed_at = pushed
+        except ClientError as error:
+            error_code = error.response.get("Error", {}).get("Code", "")
+            if error_code == "RepositoryNotFoundException":
+                return {
+                    "repository_name": clean_name,
+                    "exists": False,
+                    "image_count": 0,
+                    "tagged_image_count": 0,
+                    "untagged_image_count": 0,
+                    "tag_count": 0,
+                    "size_bytes": 0,
+                    "size_mb": 0.0,
+                    "last_pushed_at": "",
+                }
+            raise
+
+        return {
+            "repository_name": clean_name,
+            "exists": True,
+            "image_count": image_count,
+            "tagged_image_count": tagged_image_count,
+            "untagged_image_count": untagged_image_count,
+            "tag_count": tag_count,
+            "size_bytes": size_bytes,
+            "size_mb": round(size_bytes / (1024 * 1024), 2) if size_bytes else 0.0,
+            "last_pushed_at": last_pushed_at.isoformat() if hasattr(last_pushed_at, "isoformat") else str(last_pushed_at or ""),
+        }
+
+    def get_repositories_with_usage(self) -> list[dict[str, Any]]:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        repositories = self.list_prefixed_repositories()
+        if not repositories:
+            return []
+
+        usage_by_name: dict[str, dict[str, Any]] = {}
+
+        def fetch_usage(repository_name: str) -> tuple[str, dict[str, Any]]:
+            return repository_name, self.get_repository_usage(repository_name)
+
+        workers = min(8, max(1, len(repositories)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(fetch_usage, repository["repository_name"])
+                for repository in repositories
+            ]
+            for future in as_completed(futures):
+                repository_name, usage = future.result()
+                usage_by_name[repository_name] = usage
+
+        enriched: list[dict[str, Any]] = []
+        for repository in repositories:
+            merged = dict(repository)
+            merged.update(usage_by_name.get(repository["repository_name"]) or {})
+            enriched.append(merged)
+        return enriched
+
+    def delete_repository(self, repository_name: str, *, force: bool = True) -> None:
+        clean_name = (repository_name or "").strip().strip("/")
+        if not clean_name.startswith(f"{self.repo_prefix}/"):
+            raise ValueError(f"Repository must be under prefix {self.repo_prefix}/")
+        self.client.delete_repository(repositoryName=clean_name, force=bool(force))
