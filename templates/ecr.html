@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% block title %}ECR | Dokploy Helper{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <p class="eyebrow mb-1">Amazon ECR</p>
+    <h3 class="mb-0">Container Registries</h3>
+    <small class="text-muted">
+      Registry: {{ registry_host }} · Prefix: {{ repo_prefix }}/&lt;appName&gt; · Region: {{ aws_region }}
+      · Auto-create: {{ 'enabled' if ecr_enabled else 'disabled' }}
+    </small>
+  </div>
+  <div class="d-flex gap-2">
+    <form method="post" action="{{ url_for('ecr_sync_dokploy') }}" data-loading="true" class="d-inline-block">
+      <button class="btn btn-refresh" type="submit" data-loading-text="Syncing" {{ 'disabled' if not ecr_enabled else '' }}>
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Dokploy Apps
+      </button>
+    </form>
+    <button class="btn btn-refresh js-refresh-btn" type="button" data-loading-text="Refreshing">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+    <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#ensureModal">
+      <i class="bi bi-plus-lg me-1"></i>Ensure Repo
+    </button>
+  </div>
+</div>
+
+{% if not ecr_enabled %}
+<div class="alert alert-warning">
+  ECR auto-create is disabled. Set <code>ECR_AUTO_CREATE_ENABLED=true</code> to sync from Dokploy automatically.
+</div>
+{% endif %}
+
+<form class="card panel-card filter-bar mb-3" method="get" action="{{ url_for('ecr_repositories') }}">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-lg-5">
+        <label class="form-label mb-1" for="ecrSearch">Search</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input
+            id="ecrSearch"
+            class="form-control"
+            type="search"
+            name="q"
+            value="{{ search_query }}"
+            placeholder="Repo, appName, project..."
+            autocomplete="off"
+          >
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-lg-2">
+        <label class="form-label mb-1" for="ecrStatus">Status</label>
+        <select id="ecrStatus" class="form-select" name="status">
+          <option value="all" {{ 'selected' if status_filter == 'all' else '' }}>All</option>
+          <option value="created" {{ 'selected' if status_filter == 'created' else '' }}>Created</option>
+          <option value="exists" {{ 'selected' if status_filter == 'exists' else '' }}>Exists</option>
+          <option value="failed" {{ 'selected' if status_filter == 'failed' else '' }}>Failed</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-lg-3">
+        <label class="form-label mb-1" for="ecrProject">Project</label>
+        <select id="ecrProject" class="form-select" name="project">
+          <option value="all" {{ 'selected' if project_filter == 'all' else '' }}>All projects</option>
+          {% for option in projects %}
+          <option value="{{ option }}" {{ 'selected' if project_filter == option else '' }}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-lg-2 d-flex gap-2">
+        <button class="btn btn-brand flex-grow-1" type="submit">Filter</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('ecr_repositories') }}" title="Clear filters">
+          <i class="bi bi-x-lg"></i>
+        </a>
+      </div>
+    </div>
+    <small class="text-muted d-block mt-2">Showing {{ filtered_count }} of {{ total_count }} tracked repositories</small>
+  </div>
+</form>
+
+<div class="card panel-card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Repository</th>
+          <th>App Name</th>
+          <th>Project</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if records %}
+          {% for item in records %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ item.repository_name }}</div>
+              <small class="text-muted">{{ item.repository_uri }}</small>
+            </td>
+            <td>{{ item.service_app_name or '-' }}</td>
+            <td>
+              <div>{{ item.project_name or '-' }}</div>
+              <small class="text-muted">{{ item.environment_name or '' }}</small>
+            </td>
+            <td>{{ item.service_type or '-' }}</td>
+            <td>
+              {% if item.status == 'created' %}
+              <span class="badge text-bg-success">created</span>
+              {% elif item.status == 'failed' %}
+              <span class="badge text-bg-danger">failed</span>
+              {% else %}
+              <span class="badge text-bg-secondary">{{ item.status or 'exists' }}</span>
+              {% endif %}
+              {% if item.protected %}<span class="badge text-bg-warning ms-1">protected</span>{% endif %}
+              {% if item.last_error %}<div class="small text-danger mt-1">{{ item.last_error }}</div>{% endif %}
+            </td>
+            <td>
+              <div class="small">{{ item.updated_by or '-' }}</div>
+              <small class="text-muted">{{ item.updated_on }}</small>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-muted py-4">No ECR repositories tracked yet. Run Sync Dokploy Apps.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal fade" id="ensureModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form class="modal-content" method="post" action="{{ url_for('ecr_ensure_one') }}" data-loading="true">
+      <div class="modal-header">
+        <h5 class="modal-title">Ensure ECR repository</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" for="serviceAppName">Dokploy appName</label>
+        <input
+          id="serviceAppName"
+          class="form-control"
+          name="service_app_name"
+          placeholder="hrdashboard-app-1z7cfe"
+          required
+        >
+        <small class="text-muted">Creates {{ repo_prefix }}/&lt;appName&gt; if missing.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-brand" data-loading-text="Ensuring">Ensure</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

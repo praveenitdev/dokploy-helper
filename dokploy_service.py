@@ -160,3 +160,63 @@ class DokployService:
 
     def list_project_service_domains(self) -> list[str]:
         return [entry["host"] for entry in self.list_project_service_domain_details()]
+
+    def list_project_service_apps(self) -> list[dict[str, str]]:
+        projects_payload = self._get("project.all")
+        if not isinstance(projects_payload, list):
+            return []
+
+        apps_by_name: dict[str, dict[str, str]] = {}
+
+        for project in projects_payload:
+            if not isinstance(project, dict):
+                continue
+
+            project_name = str(project.get("name") or "").strip()
+            environments = project.get("environments")
+            if not isinstance(environments, list):
+                continue
+
+            for environment in environments:
+                if not isinstance(environment, dict):
+                    continue
+
+                environment_name = str(environment.get("name") or "").strip()
+
+                applications = environment.get("applications")
+                if isinstance(applications, list):
+                    for application in applications:
+                        if not isinstance(application, dict):
+                            continue
+
+                        service_app_name = str(application.get("appName") or "").strip()
+                        if not service_app_name:
+                            continue
+
+                        apps_by_name[service_app_name] = {
+                            "project_name": project_name,
+                            "environment_name": environment_name,
+                            "service_name": str(application.get("name") or "").strip(),
+                            "service_type": "application",
+                            "service_app_name": service_app_name,
+                        }
+
+                composes = environment.get("compose")
+                if isinstance(composes, list):
+                    for compose in composes:
+                        if not isinstance(compose, dict):
+                            continue
+
+                        service_app_name = str(compose.get("appName") or "").strip()
+                        if not service_app_name:
+                            continue
+
+                        apps_by_name[service_app_name] = {
+                            "project_name": project_name,
+                            "environment_name": environment_name,
+                            "service_name": str(compose.get("name") or "").strip(),
+                            "service_type": "compose",
+                            "service_app_name": service_app_name,
+                        }
+
+        return [apps_by_name[name] for name in sorted(apps_by_name.keys())]
