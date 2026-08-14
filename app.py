@@ -12,7 +12,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import app_config
 from audit_repository import AuditRepository
 from dokploy_service import DokployService
+from dokploy_sync import sync_dns_once, sync_ecr_once
 from dns_repository import DNSRepository
+from ecr_repository import EcrRepository
+from ecr_service import EcrService
 from route53_service import Route53Service
 
 
@@ -23,6 +26,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 Session(app)
 
 _DNS_REPOSITORY = None
+_ECR_REPOSITORY = None
 _AUDIT_REPOSITORY = None
 
 
@@ -272,6 +276,31 @@ def _dns_repository() -> DNSRepository:
             collection_name="dns",
         )
     return _DNS_REPOSITORY
+
+
+def _ecr_repository() -> EcrRepository:
+    global _ECR_REPOSITORY
+    if _ECR_REPOSITORY is None:
+        _ECR_REPOSITORY = EcrRepository(
+            mongodb_uri=app_config.MONGODB_URI,
+            database_name=app_config.MONGODB_DB_NAME,
+            collection_name="ecr",
+        )
+    return _ECR_REPOSITORY
+
+
+def _ecr_service() -> EcrService:
+    return EcrService(
+        aws_region=app_config.AWS_REGION,
+        aws_access_key_id=app_config.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=app_config.AWS_SECRET_ACCESS_KEY,
+        aws_session_token=app_config.AWS_SESSION_TOKEN,
+        iam_role_arn=app_config.IAM_ROLE_ARN,
+        registry_id=app_config.ECR_REGISTRY_ID,
+        repo_prefix=app_config.ECR_REPO_PREFIX,
+        scan_on_push=app_config.ECR_SCAN_ON_PUSH,
+        lifecycle_keep_count=app_config.ECR_LIFECYCLE_KEEP_COUNT,
+    )
 
 
 def _audit_repository() -> AuditRepository:
@@ -903,64 +932,178 @@ def dns_sync_dokploy():
     if login_redirect:
         return login_redirect
 
-    hosted_zone = _hosted_zone_name()
-    suffix = f".{hosted_zone}"
-    synced_count = 0
-    protected_skipped = 0
-    outside_zone_skipped = 0
-    target_name = _default_cname_target()
-    actor_email = "System"
-
+    actor_email = session.get("user", {}).get("preferred_username") or session.get("user", {}).get("name") or "System"
     try:
-        domains = _dokploy_service().list_project_service_domain_details()
-        for domain in domains:
-            record_name = str(domain.get("host") or "").strip().rstrip(".").lower()
-            if not record_name.endswith(suffix) or record_name == hosted_zone:
-                outside_zone_skipped += 1
-                continue
-
-            if _dns_repository().is_record_protected(record_name):
-                protected_skipped += 1
-                continue
-
-            _route53_service().upsert_cname(name=record_name, target=target_name, ttl=300)
-            _dns_repository().upsert_record(
-                record_name=record_name,
-                target=target_name,
-                actor_email=actor_email,
-                source="dokploy",
-                project_name=str(domain.get("project_name") or ""),
-                environment_name=str(domain.get("environment_name") or ""),
-                service_name=str(domain.get("service_name") or ""),
-                service_type=str(domain.get("service_type") or ""),
-                service_app_name=str(domain.get("service_app_name") or ""),
-                domain_created_at=_parse_iso_datetime(domain.get("domain_created_at")),
-                domain_id=str(domain.get("domain_id") or ""),
-            )
-            synced_count += 1
-
-        _log_dns_audit(
-            action="SYNC_DOKPLOY",
-            status="SUCCESS",
-            record_name=f"*.{hosted_zone}",
-            target=target_name,
-            details=f"Synced={synced_count}; ProtectedSkipped={protected_skipped}; OutsideZoneSkipped={outside_zone_skipped}",
+        stats = sync_dns_once(
+            actor_email=actor_email,
+            audit_action="SYNC_DOKPLOY",
+            user_agent=_actor_user_agent(),
+            ip_address=_actor_ip(),
         )
         flash(
-            f"Dokploy sync complete. Synced: {synced_count}, protected skipped: {protected_skipped}, outside zone skipped: {outside_zone_skipped}.",
+            (
+                f"Dokploy DNS sync complete. Synced: {stats['synced']}, "
+                f"protected skipped: {stats['protected_skipped']}, "
+                f"outside zone skipped: {stats['outside_zone_skipped']}."
+            ),
             "success",
         )
     except Exception as exc:  # pylint: disable=broad-except
         _log_dns_audit(
             action="SYNC_DOKPLOY",
             status="FAILED",
-            record_name=f"*.{hosted_zone}",
-            target=target_name,
+            record_name=f"*.{_hosted_zone_name()}",
+            target=_default_cname_target(),
             details=str(exc),
         )
         flash(f"Failed to sync Dokploy domains: {exc}", "danger")
 
     return redirect(url_for("dns_records"))
+
+
+@app.route("/ecr")
+def ecr_repositories():
+    login_redirect = _require_login()
+    if login_redirect:
+        return login_redirect
+
+    ecr = _ecr_service()
+    records = _ecr_repository().list_records()
+    search_query = (request.args.get("q") or "").strip().lower()
+    status_filter = (request.args.get("status") or "all").strip().lower()
+    project_filter = (request.args.get("project") or "all").strip()
+
+    projects = sorted(
+        {
+            str(item.get("project_name") or "").strip()
+            for item in records
+            if str(item.get("project_name") or "").strip()
+        }
+    )
+
+    filtered = []
+    for item in records:
+        if status_filter != "all" and str(item.get("status") or "").lower() != status_filter:
+            continue
+        if project_filter != "all" and str(item.get("project_name") or "") != project_filter:
+            continue
+        if search_query:
+            haystack = " ".join(
+                [
+                    str(item.get("repository_name") or ""),
+                    str(item.get("service_app_name") or ""),
+                    str(item.get("project_name") or ""),
+                    str(item.get("service_name") or ""),
+                    str(item.get("repository_uri") or ""),
+                ]
+            ).lower()
+            if search_query not in haystack:
+                continue
+        filtered.append(item)
+
+    return render_template(
+        "ecr.html",
+        section="ecr",
+        user=session.get("user"),
+        records=filtered,
+        total_count=len(records),
+        filtered_count=len(filtered),
+        search_query=request.args.get("q") or "",
+        status_filter=status_filter,
+        project_filter=project_filter,
+        projects=projects,
+        ecr_enabled=app_config.ECR_AUTO_CREATE_ENABLED,
+        registry_host=ecr.registry_host(),
+        repo_prefix=ecr.repo_prefix,
+        aws_region=app_config.AWS_REGION,
+    )
+
+
+@app.route("/ecr/sync-dokploy", methods=["POST"])
+def ecr_sync_dokploy():
+    login_redirect = _require_login()
+    if login_redirect:
+        return login_redirect
+
+    actor_email = session.get("user", {}).get("preferred_username") or session.get("user", {}).get("name") or "System"
+    try:
+        if not app_config.ECR_AUTO_CREATE_ENABLED:
+            flash("ECR auto-create is disabled. Set ECR_AUTO_CREATE_ENABLED=true.", "warning")
+            return redirect(url_for("ecr_repositories"))
+
+        stats = sync_ecr_once(
+            actor_email=actor_email,
+            audit_action="ENSURE_ECR",
+            user_agent=_actor_user_agent(),
+            ip_address=_actor_ip(),
+        )
+        flash(
+            (
+                f"ECR sync complete. Created: {stats['created']}, existed: {stats['existed']}, "
+                f"skipped: {stats['skipped']}, protected skipped: {stats['protected_skipped']}, "
+                f"failed: {stats['failed']}."
+            ),
+            "success" if stats["failed"] == 0 else "warning",
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        _log_audit(
+            module="ecr",
+            action="ENSURE_ECR",
+            status="FAILED",
+            entity_name=f"{app_config.ECR_REPO_PREFIX}/*",
+            details=str(exc),
+            actor_email=actor_email,
+        )
+        flash(f"Failed to sync ECR repositories: {exc}", "danger")
+
+    return redirect(url_for("ecr_repositories"))
+
+
+@app.route("/ecr/ensure", methods=["POST"])
+def ecr_ensure_one():
+    login_redirect = _require_login()
+    if login_redirect:
+        return login_redirect
+
+    actor_email = session.get("user", {}).get("preferred_username") or session.get("user", {}).get("name") or "System"
+    service_app_name = (request.form.get("service_app_name") or "").strip()
+
+    try:
+        ecr = _ecr_service()
+        repository_name = ecr.repository_name_for_app(service_app_name)
+        if _ecr_repository().is_record_protected(repository_name):
+            raise PermissionError("This repository is protected and cannot be modified")
+
+        result = ecr.ensure_repository(repository_name)
+        _ecr_repository().upsert_record(
+            repository_name=repository_name,
+            repository_uri=str(result.get("repository_uri") or ""),
+            actor_email=actor_email,
+            source="manual",
+            status=str(result.get("status") or "exists"),
+            service_app_name=service_app_name,
+        )
+        _log_audit(
+            module="ecr",
+            action="ECR_CREATE_MANUAL",
+            status="SUCCESS",
+            entity_name=repository_name,
+            details=f"status={result.get('status')}",
+            actor_email=actor_email,
+        )
+        flash(f"ECR repository {repository_name}: {result.get('status')}", "success")
+    except Exception as exc:  # pylint: disable=broad-except
+        _log_audit(
+            module="ecr",
+            action="ECR_CREATE_MANUAL",
+            status="FAILED",
+            entity_name=service_app_name or "unknown",
+            details=str(exc),
+            actor_email=actor_email,
+        )
+        flash(f"Failed to ensure ECR repository: {exc}", "danger")
+
+    return redirect(url_for("ecr_repositories"))
 
 
 @app.route("/databases")

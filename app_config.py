@@ -45,6 +45,11 @@ DOKPLOY_API_TIMEOUT_SECONDS = int(_get_env("DOKPLOY_API_TIMEOUT_SECONDS") or "20
 DOKPLOY_AUTO_SYNC_ENABLED = _get_env("DOKPLOY_AUTO_SYNC_ENABLED").lower() in {"1", "true", "yes", "on"}
 DOKPLOY_SYNC_INTERVAL_SECONDS = int(_get_env("DOKPLOY_SYNC_INTERVAL_SECONDS") or "30")
 DOKPLOY_SYNC_ACTOR = _get_env("DOKPLOY_SYNC_ACTOR") or "System"
+ECR_AUTO_CREATE_ENABLED = _get_env("ECR_AUTO_CREATE_ENABLED").lower() in {"1", "true", "yes", "on"}
+ECR_REGISTRY_ID = _get_env("ECR_REGISTRY_ID")
+ECR_REPO_PREFIX = (_get_env("ECR_REPO_PREFIX") or "dokploy").strip().strip("/")
+ECR_SCAN_ON_PUSH = _get_env("ECR_SCAN_ON_PUSH").lower() not in {"0", "false", "no", "off"}
+ECR_LIFECYCLE_KEEP_COUNT = int(_get_env("ECR_LIFECYCLE_KEEP_COUNT") or "30")
 PUBLIC_BASE_URL = _get_env("PUBLIC_BASE_URL")
 PREFERRED_URL_SCHEME = _get_env("PREFERRED_URL_SCHEME") or (
     "https" if PUBLIC_BASE_URL.lower().startswith("https://") else "http"

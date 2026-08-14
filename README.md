@@ -10,6 +10,7 @@ A modern Flask dashboard for managing Dokploy helper operations.
   - profile dropdown on top right
   - collapsible left menu with submenu items
 - DNS management for AWS Route53 hosted zone
+- ECR repository auto-create for Dokploy apps (`dokploy/<appName>`)
 - CRUD operations for CNAME records
 
 ## Environment variables
@@ -35,6 +36,12 @@ Copy `env_sample` to `.env` and fill values:
 - `DOKPLOY_AUTO_SYNC_ENABLED` (`true` to run continuous sync worker)
 - `DOKPLOY_SYNC_INTERVAL_SECONDS` (default: `30`)
 - `DOKPLOY_SYNC_ACTOR` (default: `System` for created_by/updated_by on auto-sync)
+- `ECR_AUTO_CREATE_ENABLED` (`true` to ensure ECR repos for Dokploy apps)
+- `ECR_REGISTRY_ID` (AWS account id, e.g. `816930190089`)
+- `ECR_REPO_PREFIX` (default: `dokploy` → repos named `dokploy/<appName>`)
+- `ECR_SCAN_ON_PUSH` (default: `true`)
+- `ECR_LIFECYCLE_KEEP_COUNT` (default: `30`)
+- `PUBLIC_BASE_URL` / `PREFERRED_URL_SCHEME` (OAuth redirect behind proxy)
 
 ## Run locally
 
@@ -74,3 +81,20 @@ The Docker image now uses Supervisor to run both processes together:
 - Auto sync worker: `python dokploy_sync_worker.py`
 
 If `DOKPLOY_AUTO_SYNC_ENABLED=false`, the worker exits with code 0 and Supervisor keeps the web process running.
+
+## ECR auto-create
+
+When `ECR_AUTO_CREATE_ENABLED=true`, each sync cycle:
+
+1. Lists Dokploy applications/compose services via `project.all`
+2. Ensures ECR repository `{ECR_REPO_PREFIX}/{appName}` exists
+3. Stores metadata in Mongo collection `ecr` and writes audit events
+
+UI: **Infrastructure → ECR**
+
+- **Sync Dokploy Apps** — ensure repos for all discovered apps
+- **Ensure Repo** — create a single `dokploy/<appName>` repository
+
+Image path used by Dokploy registry swarm mode:
+
+`{account}.dkr.ecr.{region}.amazonaws.com/dokploy/<appName>:latest`

@@ -2,149 +2,29 @@ import time
 from datetime import datetime, timezone
 
 import app_config
-from audit_repository import AuditRepository
-from dns_repository import DNSRepository
-from dokploy_service import DokployService
-from route53_service import Route53Service
+from dokploy_sync import sync_all_once, sync_dns_once
 
 
-def _hosted_zone_name() -> str:
-    return app_config.HOSTED_ZONE_NAME.strip().rstrip(".").lower()
-
-
-def _default_cname_target() -> str:
-    return _hosted_zone_name()
-
-
-def _parse_iso_datetime(value) -> datetime | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
-
-    text = str(value).strip()
-    if not text:
-        return None
-
+def _log_worker_failure(details: str) -> None:
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+        from audit_repository import AuditRepository
 
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
-def _route53_service() -> Route53Service:
-    return Route53Service(
-        hosted_zone_id=app_config.HOSTED_ZONE_ID,
-        hosted_zone_name=app_config.HOSTED_ZONE_NAME,
-        aws_region=app_config.AWS_REGION,
-        aws_access_key_id=app_config.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=app_config.AWS_SECRET_ACCESS_KEY,
-        aws_session_token=app_config.AWS_SESSION_TOKEN,
-        iam_role_arn=app_config.IAM_ROLE_ARN,
-    )
-
-
-def _dns_repository() -> DNSRepository:
-    return DNSRepository(
-        mongodb_uri=app_config.MONGODB_URI,
-        database_name=app_config.MONGODB_DB_NAME,
-        collection_name="dns",
-    )
-
-
-def _audit_repository() -> AuditRepository:
-    return AuditRepository(
-        mongodb_uri=app_config.MONGODB_URI,
-        database_name=app_config.MONGODB_DB_NAME,
-        collection_name="audit",
-    )
-
-
-def _dokploy_service() -> DokployService:
-    return DokployService(
-        base_url=app_config.DOKPLOY_BASE_URL,
-        api_key=app_config.DOKPLOY_API_KEY,
-        timeout_seconds=app_config.DOKPLOY_API_TIMEOUT_SECONDS,
-    )
-
-
-def _log_sync_event(status: str, details: str, hosted_zone: str, target_name: str) -> None:
-    try:
-        _audit_repository().log_event(
-            module="dns",
-            action="SYNC_DOKPLOY_AUTO",
-            status=status,
+        AuditRepository(
+            mongodb_uri=app_config.MONGODB_URI,
+            database_name=app_config.MONGODB_DB_NAME,
+            collection_name="audit",
+        ).log_event(
+            module="sync",
+            action="SYNC_ALL_AUTO",
+            status="FAILED",
             actor_email=app_config.DOKPLOY_SYNC_ACTOR,
-            entity_name=f"*.{hosted_zone}",
+            entity_name="dokploy-helper",
             details=details,
             ip_address="",
             user_agent="dokploy-sync-worker",
         )
     except Exception:
-        # Worker must continue even if audit logging fails.
         pass
-
-
-def sync_once() -> dict[str, int]:
-    hosted_zone = _hosted_zone_name()
-    suffix = f".{hosted_zone}"
-    synced_count = 0
-    protected_skipped = 0
-    outside_zone_skipped = 0
-    target_name = _default_cname_target()
-
-    domains = _dokploy_service().list_project_service_domain_details()
-    route53 = _route53_service()
-    dns_repo = _dns_repository()
-
-    for domain in domains:
-        record_name = str(domain.get("host") or "").strip().rstrip(".").lower()
-        if not record_name.endswith(suffix) or record_name == hosted_zone:
-            outside_zone_skipped += 1
-            continue
-
-        if dns_repo.is_record_protected(record_name):
-            protected_skipped += 1
-            continue
-
-        route53.upsert_cname(name=record_name, target=target_name, ttl=300)
-        dns_repo.upsert_record(
-            record_name=record_name,
-            target=target_name,
-            actor_email=app_config.DOKPLOY_SYNC_ACTOR,
-            source="dokploy",
-            project_name=str(domain.get("project_name") or ""),
-            environment_name=str(domain.get("environment_name") or ""),
-            service_name=str(domain.get("service_name") or ""),
-            service_type=str(domain.get("service_type") or ""),
-            service_app_name=str(domain.get("service_app_name") or ""),
-            domain_created_at=_parse_iso_datetime(domain.get("domain_created_at")),
-            domain_id=str(domain.get("domain_id") or ""),
-        )
-        synced_count += 1
-
-    details = (
-        f"Synced={synced_count}; ProtectedSkipped={protected_skipped}; "
-        f"OutsideZoneSkipped={outside_zone_skipped}"
-    )
-    _log_sync_event(
-        status="SUCCESS",
-        details=details,
-        hosted_zone=hosted_zone,
-        target_name=target_name,
-    )
-
-    return {
-        "synced": synced_count,
-        "protected_skipped": protected_skipped,
-        "outside_zone_skipped": outside_zone_skipped,
-    }
 
 
 def main() -> None:
@@ -153,21 +33,39 @@ def main() -> None:
         return
 
     interval = max(app_config.DOKPLOY_SYNC_INTERVAL_SECONDS, 1)
-    print(f"[dokploy-sync-worker] Started. Interval={interval}s")
+    print(
+        f"[dokploy-sync-worker] Started. Interval={interval}s "
+        f"ecr_auto_create={app_config.ECR_AUTO_CREATE_ENABLED}"
+    )
 
     while True:
         started = datetime.now(timezone.utc)
         try:
-            stats = sync_once()
-            print(f"[dokploy-sync-worker] {started.isoformat()} synced={stats['synced']} protected_skipped={stats['protected_skipped']} outside_zone_skipped={stats['outside_zone_skipped']}")
-        except Exception as exc:  # pylint: disable=broad-except
-            _log_sync_event(
-                status="FAILED",
-                details=str(exc),
-                hosted_zone=_hosted_zone_name(),
-                target_name=_default_cname_target(),
+            stats = sync_all_once(
+                actor_email=app_config.DOKPLOY_SYNC_ACTOR,
+                user_agent="dokploy-sync-worker",
+                dns_audit_action="SYNC_DOKPLOY_AUTO",
+                ecr_audit_action="ENSURE_ECR_AUTO",
             )
-            print(f"[dokploy-sync-worker] {started.isoformat()} failed: {exc}")
+            dns = stats["dns"]
+            ecr = stats["ecr"]
+            print(
+                f"[dokploy-sync-worker] {started.isoformat()} "
+                f"dns_synced={dns['synced']} dns_protected_skipped={dns['protected_skipped']} "
+                f"ecr_created={ecr['created']} ecr_existed={ecr['existed']} "
+                f"ecr_failed={ecr['failed']} ecr_disabled={ecr.get('disabled', 0)}"
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            # Keep DNS-only path available if ECR module fails hard during import/config
+            try:
+                dns = sync_dns_once()
+                print(
+                    f"[dokploy-sync-worker] {started.isoformat()} "
+                    f"dns_fallback_synced={dns['synced']} ecr_error={exc}"
+                )
+            except Exception as dns_exc:  # pylint: disable=broad-except
+                _log_worker_failure(str(dns_exc))
+                print(f"[dokploy-sync-worker] {started.isoformat()} failed: {dns_exc}")
 
         time.sleep(interval)
 
