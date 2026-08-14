@@ -52,6 +52,7 @@ def main() -> None:
             print(
                 f"[dokploy-sync-worker] {started.isoformat()} "
                 f"dns_synced={dns['synced']} dns_protected_skipped={dns['protected_skipped']} "
+                f"ecr_discovered={ecr.get('discovered', 0)} "
                 f"ecr_created={ecr['created']} ecr_existed={ecr['existed']} "
                 f"ecr_failed={ecr['failed']} ecr_disabled={ecr.get('disabled', 0)}"
             )

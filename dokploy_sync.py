@@ -178,6 +178,7 @@ def sync_ecr_once(
 ) -> dict[str, int]:
     if not app_config.ECR_AUTO_CREATE_ENABLED:
         return {
+            "discovered": 0,
             "created": 0,
             "existed": 0,
             "skipped": 0,
@@ -196,6 +197,7 @@ def sync_ecr_once(
     apps = _dokploy_service().list_project_service_apps()
     ecr = _ecr_service()
     ecr_repo = _ecr_repository()
+    discovered = len(apps)
 
     for app in apps:
         service_app_name = str(app.get("service_app_name") or "").strip()
@@ -252,7 +254,7 @@ def sync_ecr_once(
                 pass
 
     details = (
-        f"Created={created}; Existed={existed}; Skipped={skipped}; "
+        f"Discovered={discovered}; Created={created}; Existed={existed}; Skipped={skipped}; "
         f"ProtectedSkipped={protected_skipped}; Failed={failed}"
     )
     try:
@@ -270,6 +272,7 @@ def sync_ecr_once(
         pass
 
     return {
+        "discovered": discovered,
         "created": created,
         "existed": existed,
         "skipped": skipped,

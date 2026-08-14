@@ -64,6 +64,36 @@ class EcrRepository:
         cursor = self.collection.find({}, {"_id": 0}).sort("updated_on", DESCENDING)
         return list(cursor)
 
+    def delete_record(self, repository_name: str) -> None:
+        self.collection.delete_one({"repository_name": repository_name})
+
+    def set_protected(self, repository_name: str, protected: bool) -> None:
+        now = datetime.now(timezone.utc)
+        self.collection.update_one(
+            {"repository_name": repository_name},
+            {
+                "$set": {
+                    "protected": bool(protected),
+                    "updated_on": now,
+                },
+                "$setOnInsert": {
+                    "repository_uri": "",
+                    "created_on": now,
+                    "created_by": "System",
+                    "updated_by": "System",
+                    "source": "manual",
+                    "status": "exists",
+                    "project_name": "",
+                    "environment_name": "",
+                    "service_name": "",
+                    "service_type": "",
+                    "service_app_name": "",
+                    "last_error": "",
+                },
+            },
+            upsert=True,
+        )
+
     def is_record_protected(self, repository_name: str) -> bool:
         document = self.collection.find_one(
             {"repository_name": repository_name},
@@ -77,15 +107,39 @@ class EcrRepository:
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(days=max(days, 1) - 1)
         last_7_days = now - timedelta(days=7)
+        last_30_days = now - timedelta(days=30)
 
         total_records = self.collection.count_documents({})
         created_count = self.collection.count_documents({"status": "created"})
         exists_count = self.collection.count_documents({"status": "exists"})
         failed_count = self.collection.count_documents({"status": "failed"})
         protected_count = self.collection.count_documents({"protected": True})
+        dokploy_count = self.collection.count_documents({"source": "dokploy"})
+        manual_count = self.collection.count_documents({"source": "manual"})
         created_last_7_days = self.collection.count_documents(
-            {"created_on": {"$gte": last_7_days}, "status": "created"}
+            {"created_on": {"$gte": last_7_days}}
         )
+        created_last_30_days = self.collection.count_documents(
+            {"created_on": {"$gte": last_30_days}}
+        )
+        failed_last_7_days = self.collection.count_documents(
+            {"updated_on": {"$gte": last_7_days}, "status": "failed"}
+        )
+
+        project_rows = list(
+            self.collection.aggregate(
+                [
+                    {"$match": {"project_name": {"$nin": ["", None]}}},
+                    {"$group": {"_id": "$project_name", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1, "_id": 1}},
+                    {"$limit": 8},
+                ]
+            )
+        )
+        top_projects = [
+            {"name": str(row.get("_id") or "Unknown"), "count": int(row.get("count") or 0)}
+            for row in project_rows
+        ]
 
         created_trend_rows = list(
             self.collection.aggregate(
@@ -124,7 +178,12 @@ class EcrRepository:
             "exists_count": exists_count,
             "failed_count": failed_count,
             "protected_count": protected_count,
+            "dokploy_count": dokploy_count,
+            "manual_count": manual_count,
             "created_last_7_days": created_last_7_days,
+            "created_last_30_days": created_last_30_days,
+            "failed_last_7_days": failed_last_7_days,
+            "top_projects": top_projects,
             "trend_labels": labels,
             "created_trend": created_series,
         }
